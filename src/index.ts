@@ -166,6 +166,15 @@ export async function createMcpServer(
       return;
     }
 
+    if (serverArgs.toolAllowlist) {
+      const allowedTools = new Set(
+        serverArgs.toolAllowlist.split(',').map(t => t.trim()),
+      );
+      if (!allowedTools.has(tool.name)) {
+        return;
+      }
+    }
+
     server.registerTool(
       tool.name,
       {

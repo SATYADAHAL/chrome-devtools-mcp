@@ -97,5 +97,8 @@
   },
   "overrides": {
     "puppeteer-core": "$puppeteer"
+  },
+  "dependencies": {
+    "curlconverter": "^4.12.0"
   }
 }

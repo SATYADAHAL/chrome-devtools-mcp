@@ -205,6 +205,7 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
   const args: LaunchOptions['args'] = [
     ...(options.chromeArgs ?? []),
     '--hide-crash-restore-bubble',
+    '--disable-http2',
   ];
   const ignoreDefaultArgs: LaunchOptions['ignoreDefaultArgs'] =
     options.ignoreDefaultChromeArgs ?? false;

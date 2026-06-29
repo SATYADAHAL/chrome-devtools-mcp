@@ -12,6 +12,7 @@ import type {
   Dialog,
   ElementHandle,
   Extension,
+  HTTPRequest,
   Page,
   ScreenRecorder,
   Viewport,
@@ -129,6 +130,7 @@ export interface Response {
       resourceTypes?: string[];
       includePreservedRequests?: boolean;
       networkRequestIdInDevToolsUI?: number;
+      excludeUrlPatterns?: string[];
     },
   ): void;
   setIncludeConsoleData(
@@ -224,6 +226,9 @@ export type Context = Readonly<{
     page: ContextPage,
     cdpRequestId: string,
   ): number | undefined;
+  getNetworkRequestById(page: ContextPage, reqid: number): HTTPRequest;
+  getNetworkRequests(page: ContextPage, includePreservedRequests?: boolean): HTTPRequest[];
+  getNetworkRequestStableId(request: HTTPRequest): number;
   getScreenRecorder(): {recorder: ScreenRecorder; filePath: string} | null;
   setScreenRecorder(
     data: {recorder: ScreenRecorder; filePath: string} | null,

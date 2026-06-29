@@ -342,6 +342,16 @@ export const cliOptions = {
     describe:
       'Exposes a "slim" set of 3 tools covering navigation, script execution and screenshots only. Useful for basic browser tasks.',
   },
+  scrape: {
+    type: 'boolean',
+    describe:
+      'Scrape mode. Enables headless mode, blocks tracking/analytics domains, and restricts tools to a scraping-optimized subset (navigation, input, network, debugging). Overridable by explicit flags.',
+  },
+  toolAllowlist: {
+    type: 'string',
+    describe:
+      'Comma-separated list of tool names to expose. Only matching tools are registered. Example: --tool-allowlist "navigate_page,new_page,click,fill"',
+  },
   viaCli: {
     type: 'boolean',
     describe:
@@ -382,6 +392,35 @@ export function parseArguments(
           "turning off usage statistics. process.env['CI'] || process.env['CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS'] is set.",
         );
         args.usageStatistics = false;
+      }
+      if (args.scrape) {
+        args.usageStatistics = false;
+        args.toolAllowlist =
+          'navigate_page,new_page,wait_for,take_snapshot,evaluate_script,click,fill,press_key,list_network_requests,get_network_request,copy_as_curl,search_network';
+        const trackers = [
+          'https://*google-analytics*',
+          'https://*analytics.google*',
+          'https://*googletagmanager*',
+          'https://*doubleclick*',
+          'https://*clarity.ms*',
+          'https://*facebook*',
+          'https://*recaptcha*',
+          'https://*firebase*',
+          'https://*gstatic*',
+          'https://*hotjar*',
+          'https://*mouseflow*',
+          'https://*fullstory*',
+          'https://*crazyegg*',
+          'https://*amplitude*',
+          'https://*mixpanel*',
+          'https://*segment*',
+          'https://*sentry*',
+          'https://*google.np*',
+        ];
+        args.blockedUrlPattern = [
+          ...(args.blockedUrlPattern || []),
+          ...trackers,
+        ];
       }
     })
     .example([
@@ -444,6 +483,10 @@ export function parseArguments(
       [
         '$0 --slim',
         'Only 3 tools: navigation, JavaScript execution and screenshot',
+      ],
+      [
+        '$0 --scrape',
+        'Scrape mode: headless, analytics/trackers blocked, scraping-optimized toolset',
       ],
     ]);
 

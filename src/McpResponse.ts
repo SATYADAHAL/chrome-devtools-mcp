@@ -232,6 +232,7 @@ export class McpResponse implements Response {
     resourceTypes?: ResourceType[];
     includePreservedRequests?: boolean;
     networkRequestIdInDevToolsUI?: number;
+    excludeUrlPatterns?: string[];
   };
   #consoleDataOptions?: {
     include: boolean;
@@ -308,6 +309,7 @@ export class McpResponse implements Response {
       resourceTypes?: ResourceType[];
       includePreservedRequests?: boolean;
       networkRequestIdInDevToolsUI?: number;
+      excludeUrlPatterns?: string[];
     },
   ): void {
     if (!value) {
@@ -327,6 +329,7 @@ export class McpResponse implements Response {
       resourceTypes: options?.resourceTypes,
       includePreservedRequests: options?.includePreservedRequests,
       networkRequestIdInDevToolsUI: options?.networkRequestIdInDevToolsUI,
+      excludeUrlPatterns: options?.excludeUrlPatterns,
     };
   }
 
@@ -732,6 +735,18 @@ export class McpResponse implements Response {
         requests = requests.filter(request => {
           const type = request.resourceType();
           return normalizedTypes.has(type);
+        });
+      }
+
+      // Apply URL pattern exclusion if specified
+      if (this.#networkRequestsOptions.excludeUrlPatterns?.length) {
+        const excludePatterns =
+          this.#networkRequestsOptions.excludeUrlPatterns.map(
+            p => new URLPattern(p),
+          );
+        requests = requests.filter(request => {
+          const url = request.url();
+          return !excludePatterns.some(pattern => pattern.test(url));
         });
       }
 

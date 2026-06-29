@@ -21,10 +21,11 @@ import {
 
 describe('network', () => {
   const server = serverHooks();
+  const listNetworkRequestsTool = () => listNetworkRequests();
   describe('network_list_requests', () => {
     it('list requests', async () => {
       await withMcpContext(async (response, context) => {
-        await listNetworkRequests.handler(
+        await listNetworkRequestsTool().handler(
           {params: {}, page: context.getSelectedMcpPage()},
           response,
           context,
@@ -45,7 +46,7 @@ describe('network', () => {
         await page.goto(server.getRoute('/one'));
         await page.goto(server.getRoute('/two'));
         await page.goto(server.getRoute('/three'));
-        await listNetworkRequests.handler(
+        await listNetworkRequestsTool().handler(
           {
             params: {},
 
@@ -72,7 +73,7 @@ describe('network', () => {
         await page.goto(server.getRoute('/one'));
         await page.goto(server.getRoute('/two'));
         await page.goto(server.getRoute('/three'));
-        await listNetworkRequests.handler(
+        await listNetworkRequestsTool().handler(
           {
             params: {
               includePreservedRequests: true,
@@ -115,7 +116,7 @@ describe('network', () => {
         await page.goto(server.getRoute('/redirect'), {
           waitUntil: 'networkidle0',
         });
-        await listNetworkRequests.handler(
+        await listNetworkRequestsTool().handler(
           {
             params: {
               includePreservedRequests: true,
