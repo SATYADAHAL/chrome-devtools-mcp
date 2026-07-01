@@ -396,7 +396,7 @@ export function parseArguments(
       if (args.scrape) {
         args.usageStatistics = false;
         args.toolAllowlist =
-          'navigate_page,new_page,wait_for,take_snapshot,evaluate_script,click,fill,press_key,list_network_requests,get_network_request,copy_as_curl,search_network';
+          'navigate_page,new_page,wait_for,take_snapshot,evaluate_script,click,fill,press_key,list_network_requests,get_network_request,copy_as_curl,search_network,get_page_visible_texts';
         const trackers = [
           'https://*google-analytics*',
           'https://*analytics.google*',
