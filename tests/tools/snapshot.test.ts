@@ -162,6 +162,98 @@ describe('snapshot', () => {
       });
     });
 
+    it('should wait for networkidle', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPptrPage();
+
+        await page.setContent(
+          html`<main><span>Loaded</span></main>`,
+        );
+        await waitFor.handler(
+          {
+            params: {waitUntil: 'networkidle'},
+            page: context.getSelectedMcpPage(),
+          },
+          response,
+          context,
+        );
+
+        assert.equal(
+          response.responseLines[0],
+          'Page reached "networkidle" state.',
+        );
+      });
+    });
+
+    it('should wait for load', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPptrPage();
+
+        await page.setContent(
+          html`<main><span>Loaded</span></main>`,
+        );
+        await waitFor.handler(
+          {
+            params: {waitUntil: 'load'},
+            page: context.getSelectedMcpPage(),
+          },
+          response,
+          context,
+        );
+
+        assert.equal(
+          response.responseLines[0],
+          'Page reached "load" state.',
+        );
+      });
+    });
+
+    it('should wait for domcontentloaded', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPptrPage();
+
+        await page.setContent(
+          html`<main><span>Loaded</span></main>`,
+        );
+        await waitFor.handler(
+          {
+            params: {waitUntil: 'domcontentloaded'},
+            page: context.getSelectedMcpPage(),
+          },
+          response,
+          context,
+        );
+
+        assert.equal(
+          response.responseLines[0],
+          'Page reached "domcontentloaded" state.',
+        );
+      });
+    });
+
+    it('should default to networkidle when no params provided', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPptrPage();
+
+        await page.setContent(
+          html`<main><span>Loaded</span></main>`,
+        );
+        await waitFor.handler(
+          {
+            params: {},
+            page: context.getSelectedMcpPage(),
+          },
+          response,
+          context,
+        );
+
+        assert.equal(
+          response.responseLines[0],
+          'Page reached "networkidle" state.',
+        );
+      });
+    });
+
     it('should work with iframe content', async () => {
       await withMcpContext(async (response, context) => {
         const page = context.getSelectedPptrPage();

@@ -849,6 +849,33 @@ export class McpContext implements Context {
     return locator.wait();
   }
 
+  async waitForCondition(
+    condition: 'domcontentloaded' | 'load' | 'networkidle',
+    timeout?: number,
+    targetPage?: Page,
+  ): Promise<void> {
+    const page = targetPage ?? this.getSelectedPptrPage();
+    switch (condition) {
+      case 'networkidle':
+        await page.waitForNetworkIdle({timeout});
+        break;
+      case 'domcontentloaded':
+        await page.waitForFunction(
+          () =>
+            document.readyState === 'interactive' ||
+            document.readyState === 'complete',
+          {timeout},
+        );
+        break;
+      case 'load':
+        await page.waitForFunction(
+          () => document.readyState === 'complete',
+          {timeout},
+        );
+        break;
+    }
+  }
+
   /**
    * We need to ignore favicon request as they make our test flaky
    */

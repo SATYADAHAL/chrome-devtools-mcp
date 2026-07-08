@@ -207,8 +207,10 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
     '--hide-crash-restore-bubble',
     '--disable-http2',
   ];
-  const ignoreDefaultArgs: LaunchOptions['ignoreDefaultArgs'] =
-    options.ignoreDefaultChromeArgs ?? false;
+  const ignoreDefaultArgs: LaunchOptions['ignoreDefaultArgs'] = [
+    '--enable-automation',
+    ...(options.ignoreDefaultChromeArgs ?? []),
+  ];
 
   if (headless) {
     args.push('--screen-info={3840x2160}');

@@ -25,6 +25,7 @@ import type {
   ExtensionServiceWorker,
 } from '../types.js';
 import type {PaginationOptions} from '../utils/types.js';
+import type {PuppeteerLifeCycleEvent} from '../third_party/index.js';
 import type {WaitForEventsResult} from '../WaitForHelper.js';
 
 import type {ToolCategory} from './categories.js';
@@ -219,6 +220,11 @@ export type Context = Readonly<{
     timeout?: number,
     page?: Page,
   ): Promise<Element>;
+  waitForCondition(
+    condition: 'domcontentloaded' | 'load' | 'networkidle',
+    timeout?: number,
+    page?: Page,
+  ): Promise<void>;
   /**
    * Returns a reqid for a cdpRequestId.
    */
@@ -293,7 +299,11 @@ export type ContextPage = Readonly<{
   throwIfDialogOpen(): void;
   waitForEventsAfterAction(
     action: () => Promise<unknown>,
-    options?: {timeout?: number; handleDialog?: 'accept' | 'dismiss' | string},
+    options?: {
+      timeout?: number;
+      handleDialog?: 'accept' | 'dismiss' | string;
+      waitUntil?: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[];
+    },
   ): Promise<WaitForEventsResult>;
   getThirdPartyDeveloperTools(): ToolGroups;
 

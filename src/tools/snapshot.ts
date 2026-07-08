@@ -45,7 +45,7 @@ in the DevTools Elements panel (if any).`,
 
 export const waitFor = definePageTool({
   name: 'wait_for',
-  description: `Wait for the specified text to appear on the selected page.`,
+  description: `Wait for a condition on the selected page. Supports waiting for text to appear, or for lifecycle events like network idle.`,
   annotations: {
     category: ToolCategory.NAVIGATION,
     readOnlyHint: true,
@@ -53,9 +53,15 @@ export const waitFor = definePageTool({
   schema: {
     text: zod
       .array(zod.string())
-      .min(1)
+      .optional()
       .describe(
-        'Non-empty list of texts. Resolves when any value appears on the page.',
+        'List of texts. Resolves when any value appears on the page.',
+      ),
+    waitUntil: zod
+      .enum(['domcontentloaded', 'load', 'networkidle'])
+      .optional()
+      .describe(
+        'Wait for the specified lifecycle event. Defaults to "networkidle" when text is not provided.',
       ),
     ...timeoutSchema,
   },
@@ -63,16 +69,26 @@ export const waitFor = definePageTool({
   verifyFilesSchema: [],
   handler: async (request, response, context) => {
     const page = request.page;
-    await context.waitForTextOnPage(
-      request.params.text,
-      request.params.timeout,
-      page.pptrPage,
-    );
-
-    response.appendResponseLine(
-      `Element matching one of ${JSON.stringify(request.params.text)} found.`,
-    );
-
-    response.includeSnapshot();
+    if (request.params.text) {
+      await context.waitForTextOnPage(
+        request.params.text,
+        request.params.timeout,
+        page.pptrPage,
+      );
+      response.appendResponseLine(
+        `Element matching one of ${JSON.stringify(request.params.text)} found.`,
+      );
+      response.includeSnapshot();
+    } else {
+      const condition = request.params.waitUntil ?? 'networkidle';
+      await context.waitForCondition(
+        condition,
+        request.params.timeout,
+        page.pptrPage,
+      );
+      response.appendResponseLine(
+        `Page reached "${condition}" state.`,
+      );
+    }
   },
 });

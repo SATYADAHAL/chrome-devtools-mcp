@@ -5,7 +5,13 @@
  */
 
 import {logger} from './logger.js';
-import type {Page, Protocol, CdpPage, Dialog} from './third_party/index.js';
+import type {
+  Page,
+  Protocol,
+  CdpPage,
+  Dialog,
+  PuppeteerLifeCycleEvent,
+} from './third_party/index.js';
 import type {PredefinedNetworkConditions} from './third_party/index.js';
 
 export class WaitForHelper {
@@ -130,7 +136,11 @@ export class WaitForHelper {
 
   async waitForEventsAfterAction(
     action: () => Promise<unknown>,
-    options?: {timeout?: number; handleDialog?: 'accept' | 'dismiss' | string},
+    options?: {
+      timeout?: number;
+      handleDialog?: 'accept' | 'dismiss' | string;
+      waitUntil?: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[];
+    },
   ): Promise<WaitForEventsResult> {
     if (this.#abortController.signal.aborted) {
       throw new Error("Can't re-use a WaitForHelper");
@@ -158,6 +168,7 @@ export class WaitForHelper {
           return this.#page.waitForNavigation({
             timeout: options?.timeout ?? this.#navigationTimeout,
             signal: this.#abortController.signal,
+            ...(options?.waitUntil ? {waitUntil: options.waitUntil} : {}),
           });
         }
         return;

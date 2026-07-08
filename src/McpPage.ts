@@ -30,6 +30,7 @@ import {
   WaitForHelper,
   type WaitForEventsResult,
 } from './WaitForHelper.js';
+import type {PuppeteerLifeCycleEvent} from './third_party/index.js';
 
 /**
  * Per-page state wrapper. Consolidates dialog, snapshot, emulation,
@@ -132,7 +133,11 @@ export class McpPage implements ContextPage {
 
   waitForEventsAfterAction(
     action: () => Promise<unknown>,
-    options?: {timeout?: number; handleDialog?: 'accept' | 'dismiss' | string},
+    options?: {
+      timeout?: number;
+      handleDialog?: 'accept' | 'dismiss' | string;
+      waitUntil?: PuppeteerLifeCycleEvent | PuppeteerLifeCycleEvent[];
+    },
   ): Promise<WaitForEventsResult> {
     const helper = this.createWaitForHelper(
       this.cpuThrottlingRate,

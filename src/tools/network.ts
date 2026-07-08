@@ -354,13 +354,19 @@ export const copyAsCurl = definePageTool({
       curlCommand = await buildCurlCommandFallback(httpRequest);
     }
 
+    const stripPyComments = (code: string): string =>
+      code
+        .split('\n')
+        .filter(line => !line.trimStart().startsWith('#'))
+        .join('\n');
+
     const format = request.params.format ?? 'python';
     if (format === 'curl') {
       response.appendResponseLine(curlCommand);
     } else if (format === 'python') {
-      response.appendResponseLine(toPython(curlCommand));
+      response.appendResponseLine(stripPyComments(toPython(curlCommand)));
     } else {
-      response.appendResponseLine(toPythonHttp(curlCommand));
+      response.appendResponseLine(stripPyComments(toPythonHttp(curlCommand)));
     }
   },
 });
@@ -383,6 +389,9 @@ async function buildCurlCommandFallback(request: HTTPRequest): Promise<string> {
   }
 
   for (const [name, value] of Object.entries(headers)) {
+    if (name.startsWith(':')) {
+      continue;
+    }
     parts.push(`  -H ${escapeShellSingleQuote(`${name}: ${value}`)}`);
   }
 

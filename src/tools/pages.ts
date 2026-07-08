@@ -22,31 +22,41 @@ async function navigateWithInterception(
   action: () => Promise<unknown>,
   allowListString?: string,
   timeout?: number,
+  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2',
+  blockListString?: string,
 ): Promise<void> {
   const allowList = allowListString
     ? allowListString.split(',').map((p: string) => new URLPattern(p.trim()))
     : undefined;
+  const blockList = blockListString
+    ? blockListString.split(',').map((p: string) => new URLPattern(p.trim()))
+    : undefined;
 
   const requestHandler = (interceptedRequest: HTTPRequest) => {
-    if (!interceptedRequest.isNavigationRequest()) {
-      void interceptedRequest.continue();
-      return;
-    }
     const requestUrl = interceptedRequest.url();
-    const isAllowed = allowList!.some((pattern: URLPattern) =>
-      pattern.test(requestUrl),
-    );
 
-    if (isAllowed) {
-      void interceptedRequest.continue();
-    } else {
+    if (blockList && blockList.some(pattern => pattern.test(requestUrl))) {
       logger?.(`Blocking request to: ${requestUrl}`);
       void interceptedRequest.abort('blockedbyclient');
+      return;
     }
+
+    if (allowList && interceptedRequest.isNavigationRequest()) {
+      const isAllowed = allowList.some(pattern => pattern.test(requestUrl));
+      if (isAllowed) {
+        void interceptedRequest.continue();
+      } else {
+        logger?.(`Blocking request to: ${requestUrl}`);
+        void interceptedRequest.abort('blockedbyclient');
+      }
+      return;
+    }
+
+    void interceptedRequest.continue();
   };
 
   const cleanupInterception = async () => {
-    if (allowList) {
+    if (allowList || blockList) {
       page.pptrPage.off('request', requestHandler);
       await page.pptrPage.setRequestInterception(false).catch(error => {
         logger?.(`Failed to disable request interception`, error);
@@ -54,7 +64,7 @@ async function navigateWithInterception(
     }
   };
 
-  if (allowList) {
+  if (allowList || blockList) {
     await page.pptrPage.setRequestInterception(true);
     page.pptrPage.on('request', requestHandler);
   }
@@ -68,7 +78,10 @@ async function navigateWithInterception(
           await cleanupInterception();
         }
       },
-      {timeout},
+      {
+        timeout,
+        ...(waitUntil ? {waitUntil} : {}),
+      },
     );
   } finally {
     await cleanupInterception();
@@ -179,6 +192,13 @@ export const newPage = defineTool(args => {
             'Pages in the same browser context share cookies and storage. ' +
             'Pages in different browser contexts are fully isolated.',
         ),
+      waitUntil: zod
+        .enum(['load', 'domcontentloaded', 'networkidle0', 'networkidle2'])
+        .optional()
+        .describe(
+          'When to consider navigation succeeded. Defaults to `load`. ' +
+            'Use `networkidle0` to wait until there are no more than 0 network connections for at least 500ms.',
+        ),
       ...(args?.experimentalNavigationAllowlist
         ? {
             allowList: zod
@@ -186,6 +206,13 @@ export const newPage = defineTool(args => {
               .optional()
               .describe(
                 'Optional comma-separated list of URL patterns to allow. If provided, all other navigations will be blocked.',
+              ),
+            blockList: zod
+              .string()
+              .optional()
+              .describe(
+                'Optional comma-separated list of URL patterns to block (e.g. ads, tracking). ' +
+                  'Matching requests of all types will be aborted.',
               ),
           }
         : {}),
@@ -204,9 +231,14 @@ export const newPage = defineTool(args => {
         () =>
           page.pptrPage.goto(request.params.url, {
             timeout: request.params.timeout,
+            ...(request.params.waitUntil
+              ? {waitUntil: request.params.waitUntil}
+              : {}),
           }),
         request.params.allowList,
         request.params.timeout,
+        request.params.waitUntil,
+        request.params.blockList,
       );
 
       response.setIncludePages(true);
@@ -247,6 +279,13 @@ export const navigatePage = definePageTool(args => {
         .describe(
           'A JavaScript script to be executed on each new document before any other scripts for the next navigation.',
         ),
+      waitUntil: zod
+        .enum(['load', 'domcontentloaded', 'networkidle0', 'networkidle2'])
+        .optional()
+        .describe(
+          'When to consider navigation succeeded. Defaults to `load`. ' +
+            'Use `networkidle0` to wait until there are no more than 0 network connections for at least 500ms.',
+        ),
       ...(args?.experimentalNavigationAllowlist
         ? {
             allowList: zod
@@ -254,6 +293,13 @@ export const navigatePage = definePageTool(args => {
               .optional()
               .describe(
                 'Optional comma-separated list of URL patterns to allow. If provided, all other navigations will be blocked.',
+              ),
+            blockList: zod
+              .string()
+              .optional()
+              .describe(
+                'Optional comma-separated list of URL patterns to block (e.g. ads, tracking). ' +
+                  'Matching requests of all types will be aborted.',
               ),
           }
         : {}),
@@ -265,6 +311,9 @@ export const navigatePage = definePageTool(args => {
       const page = request.page;
       const options = {
         timeout: request.params.timeout,
+        ...(request.params.waitUntil
+          ? {waitUntil: request.params.waitUntil}
+          : {}),
       };
 
       if (!request.params.type && !request.params.url) {
@@ -365,6 +414,8 @@ export const navigatePage = definePageTool(args => {
           },
           request.params.allowList,
           request.params.timeout,
+          request.params.waitUntil,
+          request.params.blockList,
         );
       } finally {
         page.pptrPage.off('dialog', dialogHandler);
