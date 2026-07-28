@@ -359,6 +359,8 @@ class PageEventSubscriber {
 }
 
 export class NetworkCollector extends PageCollector<HTTPRequest> {
+  #finishedRequests = new WeakMap<Page, Set<number>>();
+
   constructor(
     browser: Browser,
     listeners: (
@@ -373,6 +375,32 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
   ) {
     super(browser, listeners);
   }
+
+  override addPage(page: Page): void {
+    const alreadyHasFinished = this.#finishedRequests.has(page);
+    if (!alreadyHasFinished) {
+      this.#finishedRequests.set(page, new Set());
+    }
+    super.addPage(page);
+    if (!alreadyHasFinished) {
+      page.on('requestfinished', (req: HTTPRequest) => {
+        const stableId = (req as WithSymbolId<HTTPRequest>)[stableIdSymbol];
+        if (stableId !== undefined) {
+          this.#finishedRequests.get(page)?.add(stableId);
+        }
+      });
+    }
+  }
+
+  isRequestFinished(page: Page, stableId: number): boolean {
+    return this.#finishedRequests.get(page)?.has(stableId) ?? false;
+  }
+
+  protected override cleanupPageDestroyed(page: Page): void {
+    super.cleanupPageDestroyed(page);
+    this.#finishedRequests.delete(page);
+  }
+
   override splitAfterNavigation(page: Page) {
     const navigations = this.storage.get(page) ?? [];
     if (!navigations) {

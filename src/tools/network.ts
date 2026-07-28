@@ -554,6 +554,7 @@ export const searchNetwork = definePageTool(cliArgs => {
       const status = httpResponse
         ? httpResponse.status().toString()
         : req.failure()?.errorText ?? 'pending';
+      const finished = context.isNetworkRequestFinished(request.page, reqid);
 
       // Check URL
       const urlMatch = searchBody(url, pattern);
@@ -570,8 +571,8 @@ export const searchNetwork = definePageTool(cliArgs => {
         continue;
       }
 
-      // Check request body
-      if (req.hasPostData()) {
+      // Check request body (only if request has finished)
+      if (finished && req.hasPostData()) {
         let body: string | undefined;
         try {
           body = req.postData() ?? undefined;
@@ -602,8 +603,8 @@ export const searchNetwork = definePageTool(cliArgs => {
         }
       }
 
-      // Check response body
-      if (httpResponse) {
+      // Check response body (only if request has finished)
+      if (finished && httpResponse) {
         try {
           const buffer = await httpResponse.buffer();
           if (isUtf8(buffer)) {

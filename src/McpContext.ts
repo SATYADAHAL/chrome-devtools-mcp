@@ -825,6 +825,10 @@ export class McpContext implements Context {
     return this.#networkCollector.getIdForResource(request);
   }
 
+  isNetworkRequestFinished(page: McpPage, reqid: number): boolean {
+    return this.#networkCollector.isRequestFinished(page.pptrPage, reqid);
+  }
+
   waitForTextOnPage(
     text: string[],
     timeout?: number,

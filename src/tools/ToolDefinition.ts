@@ -235,6 +235,7 @@ export type Context = Readonly<{
   getNetworkRequestById(page: ContextPage, reqid: number): HTTPRequest;
   getNetworkRequests(page: ContextPage, includePreservedRequests?: boolean): HTTPRequest[];
   getNetworkRequestStableId(request: HTTPRequest): number;
+  isNetworkRequestFinished(page: ContextPage, reqid: number): boolean;
   getScreenRecorder(): {recorder: ScreenRecorder; filePath: string} | null;
   setScreenRecorder(
     data: {recorder: ScreenRecorder; filePath: string} | null,
