@@ -7,6 +7,7 @@
 import {isUtf8} from 'node:buffer';
 
 import {toPython, toPythonHttp} from 'curlconverter';
+
 import {zod} from '../third_party/index.js';
 import type {HTTPRequest, ResourceType} from '../third_party/index.js';
 

@@ -18,6 +18,7 @@ import type {
   Viewport,
   DevTools,
 } from '../third_party/index.js';
+import type {PuppeteerLifeCycleEvent} from '../third_party/index.js';
 import type {InsightName, TraceResult} from '../trace-processing/parse.js';
 import type {
   TextSnapshotNode,
@@ -25,7 +26,6 @@ import type {
   ExtensionServiceWorker,
 } from '../types.js';
 import type {PaginationOptions} from '../utils/types.js';
-import type {PuppeteerLifeCycleEvent} from '../third_party/index.js';
 import type {WaitForEventsResult} from '../WaitForHelper.js';
 
 import type {ToolCategory} from './categories.js';
