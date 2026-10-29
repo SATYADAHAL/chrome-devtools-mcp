@@ -9,6 +9,7 @@ import type fs from 'node:fs';
 import type {parseArguments} from './bin/chrome-devtools-mcp-cli-options.js';
 import type {Channel} from './browser.js';
 import {ensureBrowserConnected, ensureBrowserLaunched} from './browser.js';
+import {loadCaptureFilter} from './CaptureFilter.js';
 import {loadIssueDescriptions} from './issue-descriptions.js';
 import {logger} from './logger.js';
 import {McpContext} from './McpContext.js';
@@ -147,6 +148,7 @@ export async function createMcpServer(
         allowList: allowlist,
         blocklist: blocklist,
         captureRoot: serverArgs.captureRoot,
+        captureFilter: loadCaptureFilter(serverArgs.captureFilter),
         captureResourceTypes: serverArgs.captureResourceTypes
           ?.split(',')
           .map(t => t.trim())

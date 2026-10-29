@@ -23,6 +23,7 @@ import type {
 import sinon from 'sinon';
 
 import type {ParsedArguments} from '../src/bin/chrome-devtools-mcp-cli-options.js';
+import type {CaptureFilter} from '../src/CaptureFilter.js';
 import {McpContext} from '../src/McpContext.js';
 import {McpResponse} from '../src/McpResponse.js';
 import {TextSnapshot} from '../src/TextSnapshot.js';
@@ -122,6 +123,7 @@ export async function withMcpContext(
     blockedUrlPattern?: string[];
     allowedUrlPattern?: string[];
     captureRoot?: string;
+    captureFilter?: CaptureFilter;
   } = {},
   args: Partial<ParsedArguments> = {},
 ) {
@@ -140,6 +142,7 @@ export async function withMcpContext(
         allowList: options.allowedUrlPattern,
         blocklist: options.blockedUrlPattern,
         captureRoot: options.captureRoot,
+        captureFilter: options.captureFilter,
       },
       Locator,
     );

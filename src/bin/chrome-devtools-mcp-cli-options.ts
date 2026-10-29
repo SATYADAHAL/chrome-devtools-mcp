@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {SCRAPE_TRACKER_PATTERNS} from '../scrapeTrackers.js';
+import {loadCaptureFilter} from '../CaptureFilter.js';
 import type {YargsOptions} from '../third_party/index.js';
 import {yargs, hideBin} from '../third_party/index.js';
 
@@ -353,6 +353,11 @@ export const cliOptions = {
     describe:
       'Enables per-tab network capture. new_page with a captureDir (a folder inside this root) saves every finished data request of the tab as it completes: <reqid>.json (metadata), <reqid>.network-response (raw body), <reqid>.network-request (POST body), requests.jsonl and capture.json. Tabs are only captured when asked.',
   },
+  captureFilter: {
+    type: 'string',
+    describe:
+      'JSON file deciding which captured requests are data: {"version", "block" (refused by Chrome in --scrape mode), "ignore" (loaded but labelled ignored_host), "allow" (always data, beats the other lists), "ignore_paths"}. Defaults to the built-in capture-filter.default.json.',
+  },
   captureResourceTypes: {
     type: 'string',
     describe:
@@ -410,7 +415,7 @@ export function parseArguments(
           'navigate_page,new_page,wait_for,take_snapshot,evaluate_script,click,fill,press_key,list_network_requests,get_network_request,copy_as_curl,search_network,search_network_multi,get_page_visible_texts,stop_capture';
         args.blockedUrlPattern = [
           ...(args.blockedUrlPattern || []),
-          ...SCRAPE_TRACKER_PATTERNS,
+          ...loadCaptureFilter(args.captureFilter).chromeBlockPatterns(),
         ];
       }
     })

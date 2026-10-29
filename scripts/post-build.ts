@@ -19,6 +19,12 @@ function writeFile(filePath: string, content: string): void {
 }
 
 function main(): void {
+  // Data files read at runtime next to the compiled sources.
+  fs.copyFileSync(
+    path.join(process.cwd(), 'src', 'capture-filter.default.json'),
+    path.join(BUILD_DIR, 'src', 'capture-filter.default.json'),
+  );
+
   const devtoolsThirdPartyPath =
     'node_modules/chrome-devtools-frontend/front_end/third_party';
   const devtoolsFrontEndCorePath =

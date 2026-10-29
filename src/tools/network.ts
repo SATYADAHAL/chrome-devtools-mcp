@@ -8,7 +8,7 @@ import {isUtf8} from 'node:buffer';
 
 import {toPython, toPythonHttp} from 'curlconverter';
 
-import {SCRAPE_TRACKER_PATTERNS} from '../scrapeTrackers.js';
+import {loadCaptureFilter} from '../CaptureFilter.js';
 import {zod} from '../third_party/index.js';
 import type {HTTPRequest, ResourceType} from '../third_party/index.js';
 
@@ -43,7 +43,7 @@ export const listNetworkRequests = definePageTool(cliArgs => {
     ? ['document', 'xhr', 'fetch']
     : undefined;
   const defaultExcludePatterns: string[] | undefined = scrapeMode
-    ? SCRAPE_TRACKER_PATTERNS
+    ? loadCaptureFilter(cliArgs?.captureFilter).excludePatterns()
     : undefined;
 
   return {

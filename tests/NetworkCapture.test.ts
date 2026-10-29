@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {describe, it} from 'node:test';
 
+import {CaptureFilter} from '../src/CaptureFilter.js';
 import type {McpContext} from '../src/McpContext.js';
 import type {McpResponse} from '../src/McpResponse.js';
 import {stopCapture} from '../src/tools/network.js';
@@ -67,7 +68,7 @@ async function withCaptureRoot(
     response: McpResponse,
     context: McpContext,
   ) => Promise<void>,
-  options: {blockedUrlPattern?: string[]} = {},
+  options: {blockedUrlPattern?: string[]; captureFilter?: CaptureFilter} = {},
 ) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'capture-'));
   try {
@@ -381,6 +382,68 @@ describe('NetworkCapture', () => {
         assert.strictEqual(summary.saved, rows.length);
       },
       {blockedUrlPattern: [server.getRoute('/tracker')]},
+    );
+  });
+
+  it('labels hosts with the capture filter', async () => {
+    const json = (_req: IncomingMessage, res: ServerResponse) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.end('{"ok": true}');
+    };
+    server.addRoute('/blocked/collect', json);
+    server.addRoute('/blocked/reviews', json);
+    server.addRoute('/ignored/consent', json);
+    server.addHtmlRoute(
+      '/hosts',
+      html`<script>
+        for (const url of [
+          '/blocked/collect',
+          '/blocked/reviews',
+          '/ignored/consent',
+        ]) {
+          fetch(url);
+        }
+      </script>`,
+    );
+    const captureFilter = CaptureFilter.parse(
+      JSON.stringify({
+        version: 3,
+        block: ['localhost/blocked'],
+        ignore: ['localhost/ignored'],
+        allow: ['localhost/blocked/reviews'],
+      }),
+      'test-filter.json',
+    );
+
+    await withCaptureRoot(
+      async (root, response, context) => {
+        const page = await openCaptured(
+          response,
+          context,
+          server.getRoute('/hosts'),
+          'hosts',
+        );
+        await context.stopCapture(page);
+        const dir = path.join(root, 'hosts');
+        const rows = await readLines(dir);
+        assert.strictEqual(byPath(rows, '/blocked/collect').drop, 'tracker');
+        assert.strictEqual(byPath(rows, '/blocked/reviews').data, true);
+        assert.ok(byPath(rows, '/blocked/reviews').bodyFile);
+        assert.strictEqual(
+          byPath(rows, '/ignored/consent').drop,
+          'ignored_host',
+        );
+        assert.strictEqual(
+          byPath(rows, '/ignored/consent').bodyFile,
+          undefined,
+        );
+        const meta = JSON.parse(
+          await fs.readFile(path.join(dir, 'capture.json'), 'utf8'),
+        );
+        assert.strictEqual(meta.filter_version, 3);
+        assert.strictEqual(meta.filter_source, 'test-filter.json');
+      },
+      {captureFilter},
     );
   });
 });

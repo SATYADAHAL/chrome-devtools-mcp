@@ -752,6 +752,11 @@ The Chrome DevTools MCP server supports the following configuration option:
   - **Type:** string
   - **Default:** `false`
 
+- **`--captureFilter`/ `--capture-filter`**
+  JSON file deciding which captured requests are data: {"version", "block" (refused by Chrome in --scrape mode), "ignore" (loaded but labelled ignored_host), "allow" (always data, beats the other lists), "ignore_paths"}. Defaults to the built-in capture-filter.default.json.
+  - **Type:** string
+  - **Default:** `false`
+
 - **`--captureResourceTypes`/ `--capture-resource-types`**
   Comma-separated resource types saved by network capture. Defaults to "document,xhr,fetch,script" (scripts only when they are JSONP: not a plain .js file, or with a callback parameter).
   - **Type:** string

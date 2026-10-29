@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import type {CaptureFilter} from './CaptureFilter.js';
 import {logger} from './logger.js';
 import type {HTTPRequest} from './third_party/index.js';
 
@@ -70,6 +71,8 @@ export interface CaptureOptions {
   // Whether Chrome refuses this URL (the blocklist). Blocked requests fail
   // with a generic network error, so they are recognised by URL.
   isBlocked?: (url: string) => boolean;
+  // Host rules: block / ignore / allow.
+  filter?: CaptureFilter;
 }
 
 interface SavedBody {
@@ -119,6 +122,7 @@ export class NetworkCapture {
   #startedAt = new Date().toISOString();
   #resourceTypes: Set<string>;
   #isBlocked: (url: string) => boolean;
+  #filter?: CaptureFilter;
   #pending = new Set<Promise<void>>();
   #stopped = false;
   #saved = 0;
@@ -147,6 +151,7 @@ export class NetworkCapture {
         : DEFAULT_CAPTURE_RESOURCE_TYPES,
     );
     this.#isBlocked = options.isBlocked ?? (() => false);
+    this.#filter = options.filter;
   }
 
   /**
@@ -230,6 +235,8 @@ export class NetworkCapture {
       startedAt: this.#startedAt,
       stoppedAt,
       resourceTypes: [...this.#resourceTypes],
+      filter_version: this.#filter?.version,
+      filter_source: this.#filter?.source,
     };
     await fs.writeFile(
       path.join(this.#dir, 'capture.json'),
@@ -247,8 +254,11 @@ export class NetworkCapture {
       return 'preflight';
     }
     const failure = request.failure();
+    const hostRule = this.#filter?.hostRule(request.url());
     if (failure) {
-      return this.#isBlocked(request.url()) ? 'tracker' : 'failed';
+      return this.#isBlocked(request.url()) || hostRule === 'block'
+        ? 'tracker'
+        : 'failed';
     }
     if (type === 'ping') {
       return 'beacon';
@@ -265,6 +275,13 @@ export class NetworkCapture {
       } catch {
         return 'static';
       }
+    }
+    // An allowed host is data whatever the other lists say.
+    if (hostRule === 'block') {
+      return 'tracker';
+    }
+    if (hostRule === 'ignore') {
+      return 'ignored_host';
     }
     return undefined;
   }

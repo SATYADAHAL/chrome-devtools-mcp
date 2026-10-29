@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
+import {type CaptureFilter, loadCaptureFilter} from './CaptureFilter.js';
 import type {TargetUniverse} from './devtools/DevtoolsUtils.js';
 import {
   overrideDevToolsGlobals,
@@ -75,6 +76,8 @@ interface McpContextOptions {
   blocklist?: string[];
   // Folder that per-tab network captures may be written into.
   captureRoot?: string;
+  // Decides which captured requests are data.
+  captureFilter?: CaptureFilter;
   // Resource types saved by network captures.
   captureResourceTypes?: string[];
 }
@@ -364,6 +367,7 @@ export class McpContext implements Context {
       {
         resourceTypes: this.#options.captureResourceTypes,
         isBlocked: url => blocked.some(pattern => pattern.test(url)),
+        filter: this.#options.captureFilter ?? loadCaptureFilter(),
       },
     );
     this.#networkCollector.setCapture(page.pptrPage, capture);
