@@ -180,6 +180,35 @@ export class CaptureFilter {
   }
 
   /**
+   * Whether the URL path contains an `ignore_paths` piece as whole path
+   * segments: `/log` matches /log, /api/log/x and /log.gif, not /login,
+   * /logo.png or /blog. A piece ending in a non-word character
+   * (`/monorail/`, `/web-pixels@`) matches as is.
+   */
+  ignoredPath(url: string): boolean {
+    let pathname: string;
+    try {
+      pathname = new URL(url).pathname.toLowerCase();
+    } catch {
+      return false;
+    }
+    return this.ignorePaths.some(piece => {
+      const needle = piece.toLowerCase();
+      for (
+        let at = pathname.indexOf(needle);
+        at !== -1;
+        at = pathname.indexOf(needle, at + 1)
+      ) {
+        const next = pathname[at + needle.length];
+        if (/\W$/.test(needle) || next === undefined || /[/.;]/.test(next)) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  /**
    * URLPatterns for Chrome's blocklist. Chrome cannot make exceptions, so a
    * block entry whose domain overlaps an allow entry is left out: its
    * requests load and are labelled by the capture instead.

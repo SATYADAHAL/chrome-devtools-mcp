@@ -28,6 +28,7 @@ interface CapturedRow {
   duplicateOf?: number;
   data: boolean;
   drop?: string;
+  format?: string;
 }
 
 async function readLines(dir: string): Promise<CapturedRow[]> {
@@ -442,6 +443,79 @@ describe('NetworkCapture', () => {
         );
         assert.strictEqual(meta.filter_version, 3);
         assert.strictEqual(meta.filter_source, 'test-filter.json');
+      },
+      {captureFilter},
+    );
+  });
+
+  it('labels responses from their body', async () => {
+    const reply = (status: number, type: string, body: string | Buffer) => {
+      return (_req: IncomingMessage, res: ServerResponse) => {
+        res.statusCode = status;
+        res.setHeader('Content-Type', type);
+        res.end(body);
+      };
+    };
+    const bigJson = JSON.stringify({entries: 'x'.repeat(10_000)});
+    server.addRoute('/nothing', reply(204, 'text/plain', ''));
+    server.addRoute('/collect', reply(200, 'text/plain', 'ok'));
+    server.addRoute('/track', reply(200, 'application/json', '{"ok":1}'));
+    server.addRoute('/api/log', reply(200, 'application/json', bigJson));
+    server.addRoute('/photo', reply(200, 'image/png', Buffer.from([1, 2, 3])));
+    server.addRoute('/plain-json', reply(200, 'text/plain', '{"price": 5}'));
+    server.addRoute(
+      '/xssi',
+      reply(
+        200,
+        'application/json',
+        `)]}'
+[1]`,
+      ),
+    );
+    server.addHtmlRoute(
+      '/bodies',
+      html`<script>
+        fetch('/nothing');
+        fetch('/collect', {method: 'POST', body: 'e=view'});
+        fetch('/track', {method: 'POST', body: 'e=view'});
+        fetch('/api/log');
+        fetch('/photo');
+        fetch('/plain-json');
+        fetch('/xssi');
+      </script>`,
+    );
+    const captureFilter = CaptureFilter.parse(
+      JSON.stringify({
+        version: 1,
+        ignore_paths: ['/collect', '/track', '/log'],
+      }),
+      'test',
+    );
+
+    await withCaptureRoot(
+      async (root, response, context) => {
+        const page = await openCaptured(
+          response,
+          context,
+          server.getRoute('/bodies'),
+          'bodies',
+        );
+        await context.stopCapture(page);
+        const rows = await readLines(path.join(root, 'bodies'));
+        const row = (pathname: string) => byPath(rows, pathname);
+        assert.strictEqual(row('/nothing').drop, 'empty');
+        assert.strictEqual(row('/collect').drop, 'beacon');
+        assert.strictEqual(row('/track').drop, 'beacon');
+        assert.strictEqual(row('/api/log').data, true, 'big JSON stays data');
+        assert.strictEqual(row('/api/log').format, 'json');
+        assert.strictEqual(row('/photo').drop, 'static');
+        assert.strictEqual(row('/plain-json').data, true);
+        assert.strictEqual(row('/plain-json').format, 'json');
+        assert.strictEqual(row('/xssi').format, 'json');
+        assert.strictEqual(row('/bodies').format, 'html');
+        for (const pathname of ['/nothing', '/collect', '/track', '/photo']) {
+          assert.strictEqual(row(pathname).bodyFile, undefined, pathname);
+        }
       },
       {captureFilter},
     );

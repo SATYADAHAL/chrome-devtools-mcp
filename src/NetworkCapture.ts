@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import {type SniffedBody, sniffBody} from './bodyFormat.js';
 import type {CaptureFilter} from './CaptureFilter.js';
 import {logger} from './logger.js';
 import type {HTTPRequest} from './third_party/index.js';
@@ -22,6 +23,9 @@ const MAX_BODY_BYTES = 20_000_000;
 // Error pages are kept up to this size: a 403 challenge page is evidence of
 // an anti-bot block.
 const MAX_ERROR_BODY_BYTES = 200_000;
+// A URL matching ignore_paths is a beacon unless it returns more JSON than
+// this.
+const MAX_BEACON_JSON_BYTES = 4_096;
 // capture.json is rewritten at most this often while a capture runs.
 const MANIFEST_INTERVAL_MS = 1000;
 // Static bundles are scripts too; only script requests that are not plain
@@ -253,9 +257,10 @@ export class NetworkCapture {
     if (request.method() === 'OPTIONS' || type === 'preflight') {
       return 'preflight';
     }
-    const failure = request.failure();
     const hostRule = this.#filter?.hostRule(request.url());
-    if (failure) {
+    // Chrome also reports some answered requests as failed (a 204 to fetch,
+    // a stream cut short); when there is a status, the status decides.
+    if (request.failure() && !request.response()) {
       return this.#isBlocked(request.url()) || hostRule === 'block'
         ? 'tracker'
         : 'failed';
@@ -286,10 +291,51 @@ export class NetworkCapture {
     return undefined;
   }
 
+  /**
+   * Labels a response from its status and body. Undefined means it is data.
+   */
+  #labelResponse(
+    request: HTTPRequest,
+    status: number,
+    body: {
+      contentType: string;
+      bytes: number;
+      sniffed?: SniffedBody;
+      hasBody: boolean;
+    },
+  ): DropReason | undefined {
+    if (status >= 400) {
+      return 'http_error';
+    }
+    // 204, redirects and responses Chrome kept no body for.
+    if (status === 204 || !body.hasBody || body.sniffed?.format === 'empty') {
+      return 'empty';
+    }
+    // Images and media fetched by scripts are still static files.
+    if (/^(image|video|audio|font)\//i.test(body.contentType)) {
+      return 'static';
+    }
+    const url = request.url();
+    if (
+      this.#filter?.ignoredPath(url) &&
+      this.#filter.hostRule(url) !== 'allow'
+    ) {
+      // Never drop a sizeable JSON body: /log or /metrics can be real APIs.
+      const json =
+        body.sniffed?.format === 'json' || body.sniffed?.format === 'jsonp';
+      if (!json || body.bytes < MAX_BEACON_JSON_BYTES) {
+        return 'beacon';
+      }
+    }
+    return undefined;
+  }
+
   /** Whether an error response's body is worth keeping as evidence. */
-  #keepErrorBody(contentType: string, buffer: Buffer): boolean {
+  #keepErrorBody(sniffed: SniffedBody | undefined, bytes: number): boolean {
+    const format = sniffed?.format;
     return (
-      buffer.length <= MAX_ERROR_BODY_BYTES && /html|json/i.test(contentType)
+      bytes <= MAX_ERROR_BODY_BYTES &&
+      (format === 'html' || format === 'json' || format === 'jsonp')
     );
   }
 
@@ -330,16 +376,26 @@ export class NetworkCapture {
       }
     }
     const bytes = buffer?.length ?? 0;
-    if (drop === undefined && response && response.status() >= 400) {
-      drop = 'http_error';
-      if (buffer && !this.#keepErrorBody(contentType, buffer)) {
-        buffer = undefined;
-      }
-    }
     if (buffer && buffer.length > MAX_BODY_BYTES) {
       bodyError = `body too large (${buffer.length} bytes)`;
       buffer = undefined;
       drop ??= 'too_large';
+    }
+    const sniffed = buffer ? sniffBody(buffer, contentType) : undefined;
+    if (drop === undefined && response) {
+      drop = this.#labelResponse(request, response.status(), {
+        contentType,
+        bytes,
+        sniffed,
+        hasBody: buffer !== undefined,
+      });
+      // Only data and error pages kept as evidence have their body saved.
+      const keep =
+        drop === undefined ||
+        (drop === 'http_error' && this.#keepErrorBody(sniffed, bytes));
+      if (!keep) {
+        buffer = undefined;
+      }
     }
 
     // Looked up and claimed without an await in between, so two copies
@@ -397,6 +453,7 @@ export class NetworkCapture {
         return {method: r.method(), url: r.url(), status: statusOf(r)};
       }),
       bytes,
+      ...sniffed,
       bodyFile,
       bodyError,
       requestBodyFile,
@@ -411,6 +468,7 @@ export class NetworkCapture {
       resourceType: meta.resourceType,
       contentType,
       bytes,
+      format: sniffed?.format,
       bodyFile,
       requestBodyFile,
       duplicateOf: first?.reqid,

@@ -187,4 +187,26 @@ describe('CaptureFilter', () => {
       assert.ok(!blocked('https://connect.facebook.net/en_US/fbevents.js'));
     });
   });
+
+  it('matches ignore_paths as whole path segments', () => {
+    const rules = filter({ignore_paths: ['/log', '/collect', '/monorail/']});
+    for (const url of [
+      'https://shop.com/log',
+      'https://shop.com/api/log/events',
+      'https://shop.com/log.gif?x=1',
+      'https://www.google.com/g/collect?v=2',
+      'https://shop.com/.well-known/shopify/monorail/unstable/produce',
+    ]) {
+      assert.ok(rules.ignoredPath(url), url);
+    }
+    for (const url of [
+      'https://shop.com/login',
+      'https://shop.com/logo.png',
+      'https://shop.com/blog/post',
+      'https://shop.com/collections/all',
+      'https://shop.com/products?log=1',
+    ]) {
+      assert.ok(!rules.ignoredPath(url), url);
+    }
+  });
 });
