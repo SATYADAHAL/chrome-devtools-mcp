@@ -18,6 +18,9 @@ export const DEFAULT_CAPTURE_RESOURCE_TYPES = [
   'script',
 ];
 const MAX_BODY_BYTES = 20_000_000;
+// Error pages are kept up to this size: a 403 challenge page is evidence of
+// an anti-bot block.
+const MAX_ERROR_BODY_BYTES = 200_000;
 // capture.json is rewritten at most this often while a capture runs.
 const MANIFEST_INTERVAL_MS = 1000;
 // Static bundles are scripts too; only script requests that are not plain
@@ -25,6 +28,18 @@ const MANIFEST_INTERVAL_MS = 1000;
 // callback parameter marks a .js URL as JSONP (reviews.js?callback=cb).
 const STATIC_SCRIPT_RE = /\.m?js$/i;
 const JSONP_PARAMS = ['callback', 'jsonp', 'cb', 'jsoncallback'];
+
+/** Why a request is not data. */
+export type DropReason =
+  | 'static'
+  | 'tracker'
+  | 'ignored_host'
+  | 'http_error'
+  | 'failed'
+  | 'empty'
+  | 'preflight'
+  | 'beacon'
+  | 'too_large';
 
 function statusOf(request: HTTPRequest): string {
   const response = request.response();
@@ -34,13 +49,27 @@ function statusOf(request: HTTPRequest): string {
   return request.failure()?.errorText ?? 'pending';
 }
 
+function isJsonp(url: URL): boolean {
+  return JSONP_PARAMS.some(name => url.searchParams.has(name));
+}
+
 export interface CaptureSummary {
   pageId: number;
   dir: string;
   saved: number;
+  data: number;
+  dropped: Partial<Record<DropReason, number>>;
+  blocked: number;
   duplicates: number;
   bytes: number;
   failed: number;
+}
+
+export interface CaptureOptions {
+  resourceTypes?: string[];
+  // Whether Chrome refuses this URL (the blocklist). Blocked requests fail
+  // with a generic network error, so they are recognised by URL.
+  isBlocked?: (url: string) => boolean;
 }
 
 interface SavedBody {
@@ -66,15 +95,18 @@ export function resolveCaptureDir(root: string, dir: string): string {
 }
 
 /**
- * Writes every finished data request of one tab to a directory as soon as it
- * completes, so the bodies are saved before Chrome evicts them and without a
- * tool call:
+ * Writes every finished or failed request of one tab to a directory as soon
+ * as it completes, labelled as data or not, so the bodies are saved before
+ * Chrome evicts them and every filtering decision is visible on disk:
  *
  *   <dir>/capture.json              tab, start url, times and counts
  *   <dir>/<reqid>.json              request + response metadata
  *   <dir>/<reqid>.network-request   request body (POST), if any
- *   <dir>/<reqid>.network-response  raw response body
- *   <dir>/requests.jsonl            one line per captured request
+ *   <dir>/<reqid>.network-response  raw response body (data and kept errors)
+ *   <dir>/requests.jsonl            one line per request
+ *
+ * Each line has `data: true`, or `data: false` and a `drop` reason. Response
+ * bodies are written only for data and for small HTML / JSON error pages.
  *
  * A request repeated with the same method, URL, request body and response
  * body (polling, double fetches) gets its own <reqid>.json and jsonl line,
@@ -86,9 +118,13 @@ export class NetworkCapture {
   #startUrl: string;
   #startedAt = new Date().toISOString();
   #resourceTypes: Set<string>;
+  #isBlocked: (url: string) => boolean;
   #pending = new Set<Promise<void>>();
   #stopped = false;
   #saved = 0;
+  #data = 0;
+  #dropped: Partial<Record<DropReason, number>> = {};
+  #blocked = 0;
   #duplicates = 0;
   #bytes = 0;
   #failed = 0;
@@ -100,14 +136,17 @@ export class NetworkCapture {
     dir: string,
     pageId: number,
     startUrl: string,
-    resourceTypes?: string[],
+    options: CaptureOptions,
   ) {
     this.#dir = dir;
     this.#pageId = pageId;
     this.#startUrl = startUrl;
     this.#resourceTypes = new Set(
-      resourceTypes?.length ? resourceTypes : DEFAULT_CAPTURE_RESOURCE_TYPES,
+      options.resourceTypes?.length
+        ? options.resourceTypes
+        : DEFAULT_CAPTURE_RESOURCE_TYPES,
     );
+    this.#isBlocked = options.isBlocked ?? (() => false);
   }
 
   /**
@@ -118,14 +157,14 @@ export class NetworkCapture {
     dir: string,
     pageId: number,
     startUrl: string,
-    resourceTypes?: string[],
+    options: CaptureOptions = {},
   ): Promise<NetworkCapture> {
     const existing = await fs.readdir(dir).catch(() => []);
     if (existing.length) {
       throw new Error(`Capture directory is not empty: ${dir}`);
     }
     await fs.mkdir(dir, {recursive: true});
-    const capture = new NetworkCapture(dir, pageId, startUrl, resourceTypes);
+    const capture = new NetworkCapture(dir, pageId, startUrl, options);
     await capture.#writeManifest();
     logger?.(`Capturing network traffic of page ${pageId} to ${dir}`);
     return capture;
@@ -175,6 +214,9 @@ export class NetworkCapture {
       pageId: this.#pageId,
       dir: this.#dir,
       saved: this.#saved,
+      data: this.#data,
+      dropped: {...this.#dropped},
+      blocked: this.#blocked,
       duplicates: this.#duplicates,
       bytes: this.#bytes,
       failed: this.#failed,
@@ -195,31 +237,48 @@ export class NetworkCapture {
     );
   }
 
-  #wanted(request: HTTPRequest): boolean {
+  /**
+   * Labels a request from what is known before its body is read: method,
+   * failure, resource type and URL. Undefined means it may be data.
+   */
+  #labelRequest(request: HTTPRequest): DropReason | undefined {
     const type = request.resourceType();
-    if (!this.#resourceTypes.has(type)) {
-      return false;
+    if (request.method() === 'OPTIONS' || type === 'preflight') {
+      return 'preflight';
     }
-    const url = request.url();
-    if (url.startsWith('data:') || url.startsWith('blob:')) {
-      return false;
+    const failure = request.failure();
+    if (failure) {
+      return this.#isBlocked(request.url()) ? 'tracker' : 'failed';
+    }
+    if (type === 'ping') {
+      return 'beacon';
+    }
+    if (!this.#resourceTypes.has(type)) {
+      return 'static';
     }
     if (type === 'script') {
       try {
-        const {pathname, searchParams} = new URL(url);
-        if (JSONP_PARAMS.some(name => searchParams.has(name))) {
-          return true;
+        const url = new URL(request.url());
+        if (!isJsonp(url) && STATIC_SCRIPT_RE.test(url.pathname)) {
+          return 'static';
         }
-        return !STATIC_SCRIPT_RE.test(pathname);
       } catch {
-        return false;
+        return 'static';
       }
     }
-    return true;
+    return undefined;
+  }
+
+  /** Whether an error response's body is worth keeping as evidence. */
+  #keepErrorBody(contentType: string, buffer: Buffer): boolean {
+    return (
+      buffer.length <= MAX_ERROR_BODY_BYTES && /html|json/i.test(contentType)
+    );
   }
 
   record(request: HTTPRequest, reqid: number): void {
-    if (this.#stopped || !this.#wanted(request)) {
+    const url = request.url();
+    if (this.#stopped || url.startsWith('data:') || url.startsWith('blob:')) {
       return;
     }
     const pending = this.#save(request, reqid)
@@ -235,26 +294,36 @@ export class NetworkCapture {
   async #save(request: HTTPRequest, reqid: number): Promise<void> {
     const response = request.response();
     const base = path.join(this.#dir, String(reqid));
+    const contentType = response?.headers()['content-type'] ?? '';
+    let drop = this.#labelRequest(request);
 
     const postData = request.hasPostData()
       ? await request.fetchPostData().catch(() => undefined)
       : undefined;
 
+    // Bodies are read only when they may be saved: data, or an error page.
     let buffer: Buffer | undefined;
     let bodyError: string | undefined;
-    if (response) {
+    if (response && drop === undefined) {
       try {
         buffer = await response.buffer();
-        if (buffer.length > MAX_BODY_BYTES) {
-          bodyError = `body too large (${buffer.length} bytes)`;
-          buffer = undefined;
-        }
       } catch {
         // Redirects and some cached responses have no body.
         bodyError = 'response body not available';
       }
     }
     const bytes = buffer?.length ?? 0;
+    if (drop === undefined && response && response.status() >= 400) {
+      drop = 'http_error';
+      if (buffer && !this.#keepErrorBody(contentType, buffer)) {
+        buffer = undefined;
+      }
+    }
+    if (buffer && buffer.length > MAX_BODY_BYTES) {
+      bodyError = `body too large (${buffer.length} bytes)`;
+      buffer = undefined;
+      drop ??= 'too_large';
+    }
 
     // Looked up and claimed without an await in between, so two copies
     // finishing at the same time cannot both be written.
@@ -290,6 +359,7 @@ export class NetworkCapture {
       }
     }
 
+    const data = drop === undefined;
     const frame = request.frame();
     const meta = {
       reqid,
@@ -298,6 +368,8 @@ export class NetworkCapture {
       url: request.url(),
       status: statusOf(request),
       resourceType: request.resourceType(),
+      data,
+      drop,
       isNavigationRequest: request.isNavigationRequest(),
       frameUrl: frame?.url(),
       isMainFrame: frame ? frame.parentFrame() === null : undefined,
@@ -320,17 +392,27 @@ export class NetworkCapture {
       url: meta.url,
       status: meta.status,
       resourceType: meta.resourceType,
-      contentType: response?.headers()['content-type'] ?? '',
+      contentType,
       bytes,
       bodyFile,
       requestBodyFile,
       duplicateOf: first?.reqid,
       finishedAt: meta.finishedAt,
+      data,
+      drop,
     };
     await fs.appendFile(
       path.join(this.#dir, 'requests.jsonl'),
       JSON.stringify(line) + '\n',
     );
     this.#saved++;
+    if (data) {
+      this.#data++;
+    } else if (drop) {
+      this.#dropped[drop] = (this.#dropped[drop] ?? 0) + 1;
+      if (drop === 'tracker' && request.failure()) {
+        this.#blocked++;
+      }
+    }
   }
 }

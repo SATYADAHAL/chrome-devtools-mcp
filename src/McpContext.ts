@@ -354,11 +354,17 @@ export class McpContext implements Context {
     if (this.#networkCollector.getCapture(page.pptrPage)) {
       throw new Error(`Page ${page.id} is already being captured.`);
     }
+    const blocked = (this.#options.blocklist ?? []).map(
+      pattern => new URLPattern(pattern),
+    );
     const capture = await NetworkCapture.create(
       resolveCaptureDir(this.#options.captureRoot, dir),
       page.id,
       startUrl,
-      this.#options.captureResourceTypes,
+      {
+        resourceTypes: this.#options.captureResourceTypes,
+        isBlocked: url => blocked.some(pattern => pattern.test(url)),
+      },
     );
     this.#networkCollector.setCapture(page.pptrPage, capture);
     return capture.dir;

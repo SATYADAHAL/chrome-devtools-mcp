@@ -398,9 +398,17 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
     super.addPage(page);
     if (!alreadyHasFinished) {
       page.on('requestfinished', (req: HTTPRequest) => {
-        const stableId = (req as WithSymbolId<HTTPRequest>)[stableIdSymbol];
-        if (stableId !== undefined) {
+        const stableId = this.getIdForResource(req);
+        if (stableId !== -1) {
           this.#finishedRequests.get(page)?.add(stableId);
+          this.#captures.get(page)?.record(req, stableId);
+        }
+      });
+      // Failed and blocked requests are labelled too, so a missing response
+      // can be explained from the capture.
+      page.on('requestfailed', (req: HTTPRequest) => {
+        const stableId = this.getIdForResource(req);
+        if (stableId !== -1) {
           this.#captures.get(page)?.record(req, stableId);
         }
       });

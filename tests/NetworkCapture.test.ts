@@ -22,8 +22,11 @@ import {html, withMcpContext} from './utils.js';
 interface CapturedRow {
   reqid: number;
   url: string;
+  status: string;
   bodyFile?: string;
   duplicateOf?: number;
+  data: boolean;
+  drop?: string;
 }
 
 async function readLines(dir: string): Promise<CapturedRow[]> {
@@ -34,6 +37,16 @@ async function readLines(dir: string): Promise<CapturedRow[]> {
     .split('\n')
     .filter(Boolean)
     .map(line => JSON.parse(line));
+}
+
+async function dataLines(dir: string): Promise<CapturedRow[]> {
+  return (await readLines(dir)).filter(row => row.data);
+}
+
+function byPath(rows: CapturedRow[], pathname: string): CapturedRow {
+  const row = rows.find(row => new URL(row.url).pathname === pathname);
+  assert.ok(row, `no line for ${pathname}`);
+  return row;
 }
 
 async function openCaptured(
@@ -54,10 +67,12 @@ async function withCaptureRoot(
     response: McpResponse,
     context: McpContext,
   ) => Promise<void>,
+  options: {blockedUrlPattern?: string[]} = {},
 ) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'capture-'));
   try {
     await withMcpContext((response, context) => cb(root, response, context), {
+      ...options,
       captureRoot: root,
     });
   } finally {
@@ -228,10 +243,10 @@ describe('NetworkCapture', () => {
       );
       await stopCapture.handler({params: {}, page: one}, response, context);
       await stopCapture.handler({params: {}, page: two}, response, context);
-      const urlsOne = (await readLines(path.join(root, 'one'))).map(
+      const urlsOne = (await dataLines(path.join(root, 'one'))).map(
         row => row.url,
       );
-      const urlsTwo = (await readLines(path.join(root, 'two'))).map(
+      const urlsTwo = (await dataLines(path.join(root, 'two'))).map(
         row => row.url,
       );
       assert.deepStrictEqual(urlsOne, [server.getRoute('/one')]);
@@ -281,12 +296,91 @@ describe('NetworkCapture', () => {
         'jsonp',
       );
       await stopCapture.handler({params: {}, page}, response, context);
-      const paths = (await readLines(path.join(root, 'jsonp'))).map(
-        row => new URL(row.url).pathname,
-      );
-      assert.ok(paths.includes('/reviews.js'));
-      assert.ok(paths.includes('/batch.json'));
-      assert.ok(!paths.includes('/bundle.js'));
+      const rows = await readLines(path.join(root, 'jsonp'));
+      assert.strictEqual(byPath(rows, '/reviews.js').data, true);
+      assert.strictEqual(byPath(rows, '/batch.json').data, true);
+      const bundle = byPath(rows, '/bundle.js');
+      assert.strictEqual(bundle.data, false);
+      assert.strictEqual(bundle.drop, 'static');
+      assert.strictEqual(bundle.bodyFile, undefined);
     });
+  });
+
+  it('labels requests that are not data instead of dropping them', async () => {
+    const reply = (status: number, type: string, body: string) => {
+      return (_req: IncomingMessage, res: ServerResponse) => {
+        res.statusCode = status;
+        res.setHeader('Content-Type', type);
+        res.end(body);
+      };
+    };
+    server.addRoute('/logo.png', reply(200, 'image/png', 'png'));
+    server.addRoute('/site.css', reply(200, 'text/css', 'body {}'));
+    server.addRoute(
+      '/challenge',
+      reply(403, 'text/html', '<html><body>Access Denied</body></html>'),
+    );
+    server.addRoute(
+      '/huge-error',
+      reply(404, 'text/html', `<html>${'x'.repeat(300_000)}</html>`),
+    );
+    server.addRoute('/oops', reply(500, 'text/plain', 'boom'));
+    server.addRoute('/tracker', reply(200, 'application/json', '{}'));
+    server.addHtmlRoute(
+      '/labels',
+      html`<link
+          rel="stylesheet"
+          href="/site.css"
+        />
+        <img src="/logo.png" />
+        <script>
+          for (const url of [
+            '/challenge',
+            '/huge-error',
+            '/oops',
+            '/tracker',
+            'http://localhost:1/refused',
+          ]) {
+            fetch(url).catch(() => {});
+          }
+        </script>`,
+    );
+
+    await withCaptureRoot(
+      async (root, response, context) => {
+        const page = await openCaptured(
+          response,
+          context,
+          server.getRoute('/labels'),
+          'labels',
+        );
+        const summary = await context.stopCapture(page);
+        const rows = await readLines(path.join(root, 'labels'));
+        const drop = (pathname: string) => byPath(rows, pathname).drop;
+
+        assert.strictEqual(byPath(rows, '/labels').data, true);
+        assert.strictEqual(drop('/logo.png'), 'static');
+        assert.strictEqual(drop('/site.css'), 'static');
+        assert.strictEqual(drop('/challenge'), 'http_error');
+        assert.ok(byPath(rows, '/challenge').bodyFile, '403 page kept');
+        assert.strictEqual(drop('/huge-error'), 'http_error');
+        assert.strictEqual(byPath(rows, '/huge-error').bodyFile, undefined);
+        assert.strictEqual(byPath(rows, '/oops').bodyFile, undefined);
+        assert.strictEqual(drop('/tracker'), 'tracker');
+        assert.strictEqual(drop('/refused'), 'failed');
+        for (const row of rows.filter(row => !row.data)) {
+          if (row.drop !== 'http_error') {
+            assert.strictEqual(row.bodyFile, undefined, row.url);
+          }
+        }
+
+        assert.ok(summary);
+        assert.strictEqual(summary.data, 1);
+        assert.strictEqual(summary.blocked, 1);
+        assert.strictEqual(summary.dropped.http_error, 3);
+        assert.strictEqual(summary.saved, rows.length);
+      },
+      {blockedUrlPattern: [server.getRoute('/tracker')]},
+    );
   });
 });
