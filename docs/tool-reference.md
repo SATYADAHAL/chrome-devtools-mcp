@@ -390,7 +390,7 @@
 
 ### `stop_capture`
 
-**Description:** Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and how many requests were saved. (requires flag: --captureRoot=true)
+**Description:** Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and the counts: requests saved, data, dropped per reason, blocked, duplicates and anti-bot hints. (requires flag: --captureRoot=true)
 
 **Parameters:** None
 

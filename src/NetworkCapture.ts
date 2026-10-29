@@ -64,6 +64,7 @@ function isJsonp(url: URL): boolean {
 export interface CaptureSummary {
   pageId: number;
   dir: string;
+  // Lines written to requests.jsonl, data or not.
   saved: number;
   data: number;
   dropped: Partial<Record<DropReason, number>>;
@@ -71,7 +72,10 @@ export interface CaptureSummary {
   duplicates: number;
   // Responses pointing at an anti-bot vendor, per vendor.
   antibot: Record<string, number>;
+  // Version of the capture filter that labelled the requests.
+  filter_version?: number;
   bytes: number;
+  // Requests whose files could not be written.
   failed: number;
 }
 
@@ -240,6 +244,7 @@ export class NetworkCapture {
       antibot: {...this.#antibot},
       bytes: this.#bytes,
       failed: this.#failed,
+      filter_version: this.#filter?.version,
     };
   }
 
@@ -251,7 +256,6 @@ export class NetworkCapture {
       stoppedAt,
       resourceTypes: [...this.#resourceTypes],
       cacheDisabled: this.cacheDisabled,
-      filter_version: this.#filter?.version,
       filter_source: this.#filter?.source,
     };
     await fs.writeFile(

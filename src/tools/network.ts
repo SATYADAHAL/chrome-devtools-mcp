@@ -863,7 +863,7 @@ export const searchNetworkMulti = definePageTool(cliArgs => {
 
 export const stopCapture = definePageTool({
   name: 'stop_capture',
-  description: `Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and how many requests were saved.`,
+  description: `Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and the counts: requests saved, data, dropped per reason, blocked, duplicates and anti-bot hints.`,
   annotations: {
     category: ToolCategory.NETWORK,
     readOnlyHint: false,
@@ -880,10 +880,20 @@ export const stopCapture = definePageTool({
       );
       return;
     }
+    const counts = (record: Record<string, number | undefined>) =>
+      Object.entries(record)
+        .map(([name, count]) => `${name} ${count}`)
+        .join(', ') || 'none';
     response.appendResponseLine(
-      `Stopped capturing page ${summary.pageId}: ${summary.saved} request(s) saved (${summary.bytes} bytes) to ${summary.dir}` +
-        (summary.failed ? `, ${summary.failed} failed` : ''),
+      `Stopped capturing page ${summary.pageId} to ${summary.dir}: ` +
+        `${summary.saved} request(s), ${summary.data} data (${summary.bytes} bytes of bodies), ` +
+        `${summary.duplicates} duplicate(s), ${summary.blocked} blocked` +
+        (summary.failed ? `, ${summary.failed} not written` : ''),
     );
+    response.appendResponseLine(`Dropped: ${counts(summary.dropped)}`);
+    if (Object.keys(summary.antibot).length) {
+      response.appendResponseLine(`Anti-bot: ${counts(summary.antibot)}`);
+    }
     response.setCapture(summary);
   },
 });

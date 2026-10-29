@@ -609,4 +609,82 @@ describe('NetworkCapture', () => {
       assert.deepStrictEqual(summary?.antibot, {cloudflare: 1});
     });
   });
+
+  it('counts every label in capture.json and stop_capture', async () => {
+    const reply = (status: number, type: string, body: string) => {
+      return (_req: IncomingMessage, res: ServerResponse) => {
+        res.statusCode = status;
+        res.setHeader('Content-Type', type);
+        res.end(body);
+      };
+    };
+    server.addRoute('/c/data', reply(200, 'application/json', '{"a":1}'));
+    server.addRoute('/c/again', reply(200, 'application/json', '{"a":1}'));
+    server.addRoute('/c/missing', reply(404, 'application/json', '{}'));
+    server.addRoute('/c/pixel.png', reply(200, 'image/png', 'png'));
+    server.addRoute('/c/blocked', reply(200, 'application/json', '{}'));
+    server.addHtmlRoute(
+      '/counts',
+      html`<img src="/c/pixel.png" />
+        <script>
+          (async () => {
+            await fetch('/c/data');
+            await fetch('/c/data');
+            await fetch('/c/missing');
+            await fetch('/c/blocked').catch(() => {});
+          })();
+        </script>`,
+    );
+
+    await withCaptureRoot(
+      async (root, response, context) => {
+        const page = await openCaptured(
+          response,
+          context,
+          server.getRoute('/counts'),
+          'counts',
+        );
+        response.resetResponseLineForTesting();
+        await stopCapture.handler({params: {}, page}, response, context);
+        const dir = path.join(root, 'counts');
+        const rows = await readLines(dir);
+        const meta = JSON.parse(
+          await fs.readFile(path.join(dir, 'capture.json'), 'utf8'),
+        );
+
+        const dropped: Record<string, number> = {};
+        for (const row of rows) {
+          if (row.drop) {
+            dropped[row.drop] = (dropped[row.drop] ?? 0) + 1;
+          }
+        }
+        assert.strictEqual(meta.saved, rows.length);
+        assert.strictEqual(meta.data, rows.filter(row => row.data).length);
+        assert.deepStrictEqual(meta.dropped, dropped);
+        assert.strictEqual(meta.data, 3, 'page + two /c/data');
+        assert.strictEqual(meta.duplicates, 1);
+        assert.strictEqual(meta.blocked, 1);
+        assert.strictEqual(dropped.http_error, 1);
+        assert.strictEqual(dropped.tracker, 1);
+        // The image, and the favicon when Chrome asks for one.
+        assert.ok((dropped.static ?? 0) >= 1);
+        assert.strictEqual(typeof meta.filter_version, 'number');
+        assert.ok(meta.stoppedAt);
+
+        assert.ok(
+          response.responseLines[0].includes(
+            `${rows.length} request(s), 3 data`,
+          ),
+          response.responseLines[0],
+        );
+        // Reasons are listed in the order they first occurred.
+        const droppedLine = response.responseLines[1];
+        assert.ok(droppedLine.startsWith('Dropped: '), droppedLine);
+        for (const part of ['static ', 'http_error 1', 'tracker 1']) {
+          assert.ok(droppedLine.includes(part), droppedLine);
+        }
+      },
+      {blockedUrlPattern: [server.getRoute('/c/blocked')]},
+    );
+  });
 });
