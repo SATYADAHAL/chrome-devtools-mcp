@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "block": [
     "google-analytics.com",
     "analytics.google.com",
@@ -91,6 +91,12 @@
     "online-metrix.net",
     "riskified.com",
     "powl.io",
+    "captcha-delivery.com",
+    "zendesk.com",
+    "zdassets.com",
+    "zopim.com",
+    "barilliance.com",
+    "barilliance.net",
     "/cart.js"
   ],
   "allow": [
