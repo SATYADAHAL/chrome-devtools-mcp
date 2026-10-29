@@ -21,6 +21,7 @@ const configSchema = zod.object({
   ignore: zod.array(zod.string()).default([]),
   allow: zod.array(zod.string()).default([]),
   ignore_paths: zod.array(zod.string()).default([]),
+  block_subdomains: zod.array(zod.string()).default([]),
 });
 
 export type CaptureFilterConfig = zod.infer<typeof configSchema>;
@@ -30,24 +31,65 @@ export type HostRule = 'allow' | 'block' | 'ignore';
 
 interface Entry {
   text: string;
+  // Lower-case domain, without the trailing `.*` of an any-suffix entry.
   host: string;
+  // `google.*`: the domain under any public suffix (.com, .com.au, .co.uk).
+  anySuffix: boolean;
   path: string;
 }
 
 function parseEntry(text: string): Entry {
   const slash = text.indexOf('/');
-  const host = (slash === -1 ? text : text.slice(0, slash)).toLowerCase();
-  return {text, host, path: slash === -1 ? '' : text.slice(slash)};
+  let host = (slash === -1 ? text : text.slice(0, slash)).toLowerCase();
+  const anySuffix = host.endsWith('.*');
+  if (anySuffix) {
+    host = host.slice(0, -2);
+  }
+  return {text, host, anySuffix, path: slash === -1 ? '' : text.slice(slash)};
 }
 
-function hostMatches(entryHost: string, host: string): boolean {
-  return host === entryHost || host.endsWith(`.${entryHost}`);
+function isDomainOf(domain: string, host: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+function hostMatches(entry: Entry, host: string): boolean {
+  if (!entry.anySuffix) {
+    return isDomainOf(entry.host, host);
+  }
+  // Strip a one- or two-label public suffix (com, com.au) and compare.
+  const labels = host.split('.');
+  for (const suffixLength of [1, 2]) {
+    if (labels.length > suffixLength) {
+      const rest = labels.slice(0, -suffixLength).join('.');
+      if (isDomainOf(entry.host, rest)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function entryMatches(entry: Entry, url: URL): boolean {
   return (
-    hostMatches(entry.host, url.hostname.toLowerCase()) &&
+    hostMatches(entry, url.hostname.toLowerCase()) &&
     url.pathname.startsWith(entry.path)
+  );
+}
+
+/**
+ * Whether the host's first label is `name`, optionally followed by digits,
+ * on a site's subdomain: `gtm` matches gtm.shop.com and gtm2.shop.com.au,
+ * not gtmetrix.com or gtm.com.
+ */
+function subdomainMatches(name: string, host: string): boolean {
+  const labels = host.split('.');
+  if (labels.length < 3) {
+    return false;
+  }
+  const first = labels[0];
+  return (
+    first === name ||
+    (first.startsWith(name) && /^\d+$/.test(first.slice(name.length)))
   );
 }
 
@@ -66,7 +108,10 @@ function escapePattern(text: string): string {
  *
  * Host entries match the domain and its subdomains (`segment.com` matches
  * `cdn.segment.com`, not `mysegmentshop.com`); entries with a `/` also need
- * the URL path to start with the given path (`facebook.com/tr`).
+ * the URL path to start with the given path (`facebook.com/tr`); `google.*`
+ * matches the domain under any public suffix (`google.com.au`).
+ * `block_subdomains` blocks first-party proxies by their first host label on
+ * any site (`gtm` blocks gtm2.shop.com, the Google Tag Manager proxy).
  */
 export class CaptureFilter {
   readonly version: number;
@@ -75,6 +120,7 @@ export class CaptureFilter {
   #block: Entry[];
   #ignore: Entry[];
   #allow: Entry[];
+  #blockSubdomains: string[];
 
   constructor(config: CaptureFilterConfig, source: string) {
     this.version = config.version;
@@ -83,6 +129,9 @@ export class CaptureFilter {
     this.#block = config.block.map(parseEntry);
     this.#ignore = config.ignore.map(parseEntry);
     this.#allow = config.allow.map(parseEntry);
+    this.#blockSubdomains = config.block_subdomains.map(name =>
+      name.toLowerCase(),
+    );
   }
 
   static parse(json: string, source: string): CaptureFilter {
@@ -112,7 +161,11 @@ export class CaptureFilter {
     if (this.#allow.some(entry => entryMatches(entry, parsed))) {
       return 'allow';
     }
-    if (this.#block.some(entry => entryMatches(entry, parsed))) {
+    const host = parsed.hostname.toLowerCase();
+    if (
+      this.#block.some(entry => entryMatches(entry, parsed)) ||
+      this.#blockSubdomains.some(name => subdomainMatches(name, host))
+    ) {
       return 'block';
     }
     if (this.#ignore.some(entry => entryMatches(entry, parsed))) {
@@ -131,8 +184,7 @@ export class CaptureFilter {
     for (const entry of this.#block) {
       const overlaps = this.#allow.some(
         allow =>
-          hostMatches(entry.host, allow.host) ||
-          hostMatches(allow.host, entry.host),
+          hostMatches(entry, allow.host) || hostMatches(allow, entry.host),
       );
       if (overlaps) {
         logger?.(
@@ -141,6 +193,13 @@ export class CaptureFilter {
         continue;
       }
       patterns.push(...this.#urlPatterns(entry));
+    }
+    for (const name of this.#blockSubdomains) {
+      // Plain patterns, no regex groups: gtm.*.*, gtm0.*.* ... gtm9.*.*
+      // (`.*.*` keeps a site domain after the label, as subdomainMatches).
+      for (const digit of ['', ...'0123456789']) {
+        patterns.push(`*://${escapePattern(name + digit)}.*.*`);
+      }
     }
     return patterns;
   }
@@ -153,7 +212,7 @@ export class CaptureFilter {
   }
 
   #urlPatterns(entry: Entry): string[] {
-    const host = escapePattern(entry.host);
+    const host = escapePattern(entry.host) + (entry.anySuffix ? '.*' : '');
     const pathname = `${escapePattern(entry.path || '/')}*`;
     return [`*://${host}${pathname}`, `*://*.${host}${pathname}`];
   }

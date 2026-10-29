@@ -75,4 +75,61 @@ describe('CaptureFilter', () => {
     const args = parseArguments('1.0.0', ['node', 'main.js', '--scrape'], {});
     assert.ok(args.blockedUrlPattern?.includes('*://*.google-analytics.com/*'));
   });
+
+  describe('matcher', () => {
+    const rules = filter({
+      block: [
+        'segment.com',
+        'facebook.com/tr',
+        'google.*/pagead',
+        'google-analytics.com',
+      ],
+      block_subdomains: ['gtm', 'sgtm'],
+    });
+    const cases: Array<[string, 'block' | undefined]> = [
+      // a domain matches itself and its subdomains, not a longer name
+      ['https://segment.com/v1/t', 'block'],
+      ['https://cdn.segment.com/analytics.js', 'block'],
+      ['https://mysegmentshop.com.au/products', undefined],
+      ['https://segment.com.evil.net/', undefined],
+      ['https://api.shop.com/customer-segments', undefined],
+      // an entry with a path needs that path prefix
+      ['https://www.facebook.com/tr?id=1&ev=PageView', 'block'],
+      ['https://www.facebook.com/shop/products', undefined],
+      // google.* is any public suffix
+      ['https://www.google.com/pagead/1p-user-list/1', 'block'],
+      ['https://www.google.com.au/pagead/landing', 'block'],
+      ['https://google.co.uk/pagead/x', 'block'],
+      ['https://www.google.com/maps/api/js', undefined],
+      ['https://notgoogle.com/pagead/x', undefined],
+      // first-party Tag Manager proxies, by first label on any site
+      ['https://gtm.petcircle.com.au/gtag/js?id=G-1', 'block'],
+      ['https://gtm2.petcircle.com.au/gtag/js?id=G-1', 'block'],
+      ['https://sgtm.shop.com/g/collect', 'block'],
+      ['https://gtmetrix.com/reports/x', undefined],
+      ['https://www.gtmhub.com/', undefined],
+      ['https://gtm.com/', undefined],
+      // case does not matter
+      ['https://WWW.Google-Analytics.COM/g/collect', 'block'],
+    ];
+    for (const [url, expected] of cases) {
+      it(`${expected ?? 'keeps'} ${url}`, () => {
+        assert.strictEqual(rules.hostRule(url), expected);
+      });
+    }
+
+    it('gives Chrome patterns that match the same URLs', () => {
+      const patterns = rules
+        .chromeBlockPatterns()
+        .map(pattern => new URLPattern(pattern));
+      for (const [url, expected] of cases) {
+        // Chrome patterns are case-sensitive on purpose-built lower-case hosts
+        if (url !== url.toLowerCase()) {
+          continue;
+        }
+        const blocked = patterns.some(pattern => pattern.test(url));
+        assert.strictEqual(blocked, expected === 'block', url);
+      }
+    });
+  });
 });

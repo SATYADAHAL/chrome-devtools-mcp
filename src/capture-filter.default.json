@@ -9,7 +9,7 @@
     "facebook.com",
     "facebook.net",
     "recaptcha.net",
-    "google.com/recaptcha",
+    "google.*/recaptcha",
     "firebaseio.com",
     "firebaseapp.com",
     "gstatic.com",
@@ -31,13 +31,14 @@
     "cloudflareinsights.com",
     "googleadservices.com",
     "googlesyndication.com",
-    "google.com/rmkt",
-    "google.com/pagead",
-    "google.com/ccm",
-    "google.com/ads",
+    "google.*/rmkt",
+    "google.*/pagead",
+    "google.*/ccm",
+    "google.*/ads",
     "google.com.np"
   ],
   "ignore": [],
   "allow": [],
-  "ignore_paths": []
+  "ignore_paths": [],
+  "block_subdomains": ["gtm", "sgtm"]
 }
