@@ -225,6 +225,12 @@ export const newPage = defineTool(args => {
                 'Folder inside the capture root to save the network traffic of this tab to, from its first request on. ' +
                   'Must not exist yet or be empty. Call stop_capture before reading the files. When omitted, nothing is saved.',
               ),
+            keepCache: zod
+              .boolean()
+              .optional()
+              .describe(
+                'With captureDir: keep the HTTP cache on. By default the cache is off while the tab is captured, because a cached response can come without a body.',
+              ),
           }
         : {}),
       ...timeoutSchema,
@@ -244,6 +250,7 @@ export const newPage = defineTool(args => {
             page,
             request.params.captureDir,
             request.params.url,
+            {keepCache: request.params.keepCache},
           );
           response.appendResponseLine(
             `Capturing network traffic of page ${page.id} to ${dir}`,

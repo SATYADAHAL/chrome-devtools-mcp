@@ -348,6 +348,7 @@ export class McpContext implements Context {
     page: McpPage,
     dir: string,
     startUrl: string,
+    options: {keepCache?: boolean} = {},
   ): Promise<string> {
     if (!this.#options.captureRoot) {
       throw new Error(
@@ -368,8 +369,14 @@ export class McpContext implements Context {
         resourceTypes: this.#options.captureResourceTypes,
         isBlocked: url => blocked.some(pattern => pattern.test(url)),
         filter: this.#options.captureFilter ?? loadCaptureFilter(),
+        cacheDisabled: !options.keepCache,
       },
     );
+    if (!options.keepCache) {
+      // A response served from the HTTP cache can come without a body, so
+      // its data would look absent.
+      await page.pptrPage.setCacheEnabled(false);
+    }
     this.#networkCollector.setCapture(page.pptrPage, capture);
     return capture.dir;
   }
@@ -380,6 +387,9 @@ export class McpContext implements Context {
   async stopCapture(page: McpPage): Promise<CaptureSummary | undefined> {
     const capture = this.#networkCollector.getCapture(page.pptrPage);
     this.#networkCollector.setCapture(page.pptrPage, undefined);
+    if (capture?.cacheDisabled && !page.pptrPage.isClosed()) {
+      await page.pptrPage.setCacheEnabled(true).catch(() => undefined);
+    }
     return await capture?.stop();
   }
 

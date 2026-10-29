@@ -77,6 +77,8 @@ export interface CaptureOptions {
   isBlocked?: (url: string) => boolean;
   // Host rules: block / ignore / allow.
   filter?: CaptureFilter;
+  // Whether the tab's HTTP cache is turned off for the capture.
+  cacheDisabled?: boolean;
 }
 
 interface SavedBody {
@@ -127,6 +129,7 @@ export class NetworkCapture {
   #resourceTypes: Set<string>;
   #isBlocked: (url: string) => boolean;
   #filter?: CaptureFilter;
+  readonly cacheDisabled: boolean;
   #pending = new Set<Promise<void>>();
   #stopped = false;
   #saved = 0;
@@ -156,6 +159,7 @@ export class NetworkCapture {
     );
     this.#isBlocked = options.isBlocked ?? (() => false);
     this.#filter = options.filter;
+    this.cacheDisabled = options.cacheDisabled ?? false;
   }
 
   /**
@@ -239,6 +243,7 @@ export class NetworkCapture {
       startedAt: this.#startedAt,
       stoppedAt,
       resourceTypes: [...this.#resourceTypes],
+      cacheDisabled: this.cacheDisabled,
       filter_version: this.#filter?.version,
       filter_source: this.#filter?.source,
     };
@@ -453,6 +458,7 @@ export class NetworkCapture {
         return {method: r.method(), url: r.url(), status: statusOf(r)};
       }),
       bytes,
+      fromCache: response?.fromCache() || undefined,
       ...sniffed,
       bodyFile,
       bodyError,
@@ -469,6 +475,7 @@ export class NetworkCapture {
       contentType,
       bytes,
       format: sniffed?.format,
+      fromCache: meta.fromCache,
       bodyFile,
       requestBodyFile,
       duplicateOf: first?.reqid,

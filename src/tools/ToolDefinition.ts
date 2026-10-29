@@ -199,6 +199,7 @@ export type Context = Readonly<{
     page: ContextPage,
     dir: string,
     startUrl: string,
+    options?: {keepCache?: boolean},
   ): Promise<string>;
   stopCapture(page: ContextPage): Promise<CaptureSummary | undefined>;
   selectPage(page: ContextPage): void;

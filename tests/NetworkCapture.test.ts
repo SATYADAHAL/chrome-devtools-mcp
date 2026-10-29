@@ -29,6 +29,7 @@ interface CapturedRow {
   data: boolean;
   drop?: string;
   format?: string;
+  fromCache?: boolean;
 }
 
 async function readLines(dir: string): Promise<CapturedRow[]> {
@@ -519,5 +520,55 @@ describe('NetworkCapture', () => {
       },
       {captureFilter},
     );
+  });
+
+  it('turns the HTTP cache off on captured tabs', async () => {
+    let served = 0;
+    server.addRoute('/cached', (_req, res) => {
+      served++;
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Cache-Control', 'max-age=3600');
+      res.end('{"price": 5}');
+    });
+    const page = html`<script>
+      fetch('/cached');
+    </script>`;
+    server.addHtmlRoute('/warm', page);
+    server.addHtmlRoute('/cold', page);
+    server.addHtmlRoute('/kept', page);
+
+    await withCaptureRoot(async (root, response, context) => {
+      const waitUntil: 'networkidle0' | 'load' = 'networkidle0';
+      await newPage().handler(
+        {params: {url: server.getRoute('/warm'), waitUntil}},
+        response,
+        context,
+      );
+      assert.strictEqual(served, 1);
+
+      const cold = await openCaptured(
+        response,
+        context,
+        server.getRoute('/cold'),
+        'cold',
+      );
+      await context.stopCapture(cold);
+      assert.strictEqual(served, 2, 'fetched again, not from the cache');
+      const row = byPath(await readLines(path.join(root, 'cold')), '/cached');
+      assert.strictEqual(row.data, true);
+      assert.ok(row.bodyFile);
+
+      const keptParams = {
+        url: server.getRoute('/kept'),
+        captureDir: 'kept',
+        keepCache: true,
+        waitUntil,
+      };
+      await newPage().handler({params: keptParams}, response, context);
+      await context.stopCapture(context.getSelectedMcpPage());
+      assert.strictEqual(served, 2, 'keepCache uses the cache');
+      const kept = byPath(await readLines(path.join(root, 'kept')), '/cached');
+      assert.strictEqual(kept.fromCache, true);
+    });
   });
 });
