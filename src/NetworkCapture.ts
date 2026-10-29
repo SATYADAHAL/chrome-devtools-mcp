@@ -9,49 +9,32 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {detectAntibot} from './antibot.js';
-import {type SniffedBody, sniffBody} from './bodyFormat.js';
+import {sniffBody} from './bodyFormat.js';
 import type {CaptureFilter} from './CaptureFilter.js';
+import {
+  bodyDestination,
+  DEFAULT_CAPTURE_RESOURCE_TYPES,
+  MAX_BODY_BYTES,
+  type DropReason,
+  type LabelRules,
+  labelRequest,
+  labelResponse,
+  readsBody,
+} from './captureLabels.js';
 import {logger} from './logger.js';
 import type {HTTPRequest} from './third_party/index.js';
 
-export const DEFAULT_CAPTURE_RESOURCE_TYPES = [
-  'document',
-  'xhr',
-  'fetch',
-  'script',
-];
-const MAX_BODY_BYTES = 20_000_000;
-// Error pages are kept up to this size: a 403 challenge page is evidence of
-// an anti-bot block.
-const MAX_ERROR_BODY_BYTES = 200_000;
-// A URL matching ignore_paths is a beacon unless it returns more JSON than
-// this.
-const MAX_BEACON_JSON_BYTES = 4_096;
+export {
+  DEFAULT_CAPTURE_RESOURCE_TYPES,
+  type DropReason,
+} from './captureLabels.js';
+
 // How much of a body is searched for anti-bot challenge text.
 const ANTIBOT_BODY_BYTES = 50_000;
+// Bodies over the save limit are not sniffed (parsing them is wasted work).
+const MAX_SNIFF_BYTES = MAX_BODY_BYTES;
 // capture.json is rewritten at most this often while a capture runs.
 const MANIFEST_INTERVAL_MS = 1000;
-// Static bundles are scripts too; only script requests that are not plain
-// .js files (JSONP calls such as batch.json?callback=...) are data, unless a
-// callback parameter marks a .js URL as JSONP (reviews.js?callback=cb).
-const STATIC_SCRIPT_RE = /\.m?js$/i;
-const JSONP_PARAMS = ['callback', 'jsonp', 'cb', 'jsoncallback'];
-// Static files by extension, whatever the resource type (SVG icons fetched
-// by XHR).
-const STATIC_FILE_RE =
-  /\.(?:css|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm|map)$/i;
-
-/** Why a request is not data. */
-export type DropReason =
-  | 'static'
-  | 'tracker'
-  | 'ignored_host'
-  | 'http_error'
-  | 'failed'
-  | 'empty'
-  | 'preflight'
-  | 'beacon'
-  | 'too_large';
 
 function statusOf(request: HTTPRequest): string {
   const response = request.response();
@@ -59,10 +42,6 @@ function statusOf(request: HTTPRequest): string {
     return response.status().toString();
   }
   return request.failure()?.errorText ?? 'pending';
-}
-
-function isJsonp(url: URL): boolean {
-  return JSONP_PARAMS.some(name => url.searchParams.has(name));
 }
 
 export interface CaptureSummary {
@@ -96,7 +75,7 @@ export interface CaptureOptions {
 
 interface SavedBody {
   reqid: number;
-  bodyFile?: string;
+  responseFile?: string;
   requestBodyFile?: string;
 }
 
@@ -268,101 +247,8 @@ export class NetworkCapture {
     );
   }
 
-  /**
-   * Labels a request from what is known before its body is read: method,
-   * failure, resource type and URL. Undefined means it may be data.
-   */
-  #labelRequest(request: HTTPRequest): DropReason | undefined {
-    const type = request.resourceType();
-    if (request.method() === 'OPTIONS' || type === 'preflight') {
-      return 'preflight';
-    }
-    const hostRule = this.#filter?.hostRule(request.url());
-    // Chrome also reports some answered requests as failed (a 204 to fetch,
-    // a stream cut short); when there is a status, the status decides.
-    if (request.failure() && !request.response()) {
-      return this.#isBlocked(request.url()) || hostRule === 'block'
-        ? 'tracker'
-        : 'failed';
-    }
-    if (type === 'ping') {
-      return 'beacon';
-    }
-    if (!this.#resourceTypes.has(type)) {
-      return 'static';
-    }
-    let url: URL;
-    try {
-      url = new URL(request.url());
-    } catch {
-      return 'static';
-    }
-    if (STATIC_FILE_RE.test(url.pathname)) {
-      return 'static';
-    }
-    if (
-      type === 'script' &&
-      !isJsonp(url) &&
-      STATIC_SCRIPT_RE.test(url.pathname)
-    ) {
-      return 'static';
-    }
-    // An allowed host is data whatever the other lists say.
-    if (hostRule === 'block') {
-      return 'tracker';
-    }
-    if (hostRule === 'ignore') {
-      return 'ignored_host';
-    }
-    return undefined;
-  }
-
-  /**
-   * Labels a response from its status and body. Undefined means it is data.
-   */
-  #labelResponse(
-    request: HTTPRequest,
-    status: number,
-    body: {
-      contentType: string;
-      bytes: number;
-      sniffed?: SniffedBody;
-      hasBody: boolean;
-    },
-  ): DropReason | undefined {
-    if (status >= 400) {
-      return 'http_error';
-    }
-    // 204, redirects and responses Chrome kept no body for.
-    if (status === 204 || !body.hasBody || body.sniffed?.format === 'empty') {
-      return 'empty';
-    }
-    // Images and media fetched by scripts are still static files.
-    if (/^(image|video|audio|font)\//i.test(body.contentType)) {
-      return 'static';
-    }
-    const url = request.url();
-    if (
-      this.#filter?.ignoredPath(url) &&
-      this.#filter.hostRule(url) !== 'allow'
-    ) {
-      // Never drop a sizeable JSON body: /log or /metrics can be real APIs.
-      const json =
-        body.sniffed?.format === 'json' || body.sniffed?.format === 'jsonp';
-      if (!json || body.bytes < MAX_BEACON_JSON_BYTES) {
-        return 'beacon';
-      }
-    }
-    return undefined;
-  }
-
-  /** Whether an error response's body is worth keeping as evidence. */
-  #keepErrorBody(sniffed: SniffedBody | undefined, bytes: number): boolean {
-    const format = sniffed?.format;
-    return (
-      bytes <= MAX_ERROR_BODY_BYTES &&
-      (format === 'html' || format === 'json' || format === 'jsonp')
-    );
+  get #rules(): LabelRules {
+    return {filter: this.#filter, resourceTypes: this.#resourceTypes};
   }
 
   record(request: HTTPRequest, reqid: number): void {
@@ -384,16 +270,29 @@ export class NetworkCapture {
     const response = request.response();
     const base = path.join(this.#dir, String(reqid));
     const contentType = response?.headers()['content-type'] ?? '';
-    let drop = this.#labelRequest(request);
+    // Chrome also reports some answered requests as failed (a 204 to fetch,
+    // a stream cut short); when there is a status, the status decides.
+    const failed = request.failure() !== null && !response;
+    let drop = labelRequest(
+      {
+        method: request.method(),
+        url: request.url(),
+        resourceType: request.resourceType(),
+        failed,
+        blocked: failed && this.#isBlocked(request.url()),
+      },
+      this.#rules,
+    );
 
     const postData = request.hasPostData()
       ? await request.fetchPostData().catch(() => undefined)
       : undefined;
 
-    // Bodies are read only when they may be saved: data, or an error page.
+    // Bodies are read only when they may be saved: data, error pages and
+    // small bodies of ignored hosts.
     let buffer: Buffer | undefined;
     let bodyError: string | undefined;
-    if (response && drop === undefined) {
+    if (response && readsBody(drop)) {
       try {
         buffer = await response.buffer();
       } catch {
@@ -402,12 +301,10 @@ export class NetworkCapture {
       }
     }
     const bytes = buffer?.length ?? 0;
-    if (buffer && buffer.length > MAX_BODY_BYTES) {
-      bodyError = `body too large (${buffer.length} bytes)`;
-      buffer = undefined;
-      drop ??= 'too_large';
-    }
-    const sniffed = buffer ? sniffBody(buffer, contentType) : undefined;
+    const sniffed =
+      buffer && bytes <= MAX_SNIFF_BYTES
+        ? sniffBody(buffer, contentType)
+        : undefined;
     // Before a dropped body is let go: a challenge page names its vendor.
     const antibot = detectAntibot({
       url: request.url(),
@@ -419,19 +316,24 @@ export class NetworkCapture {
       this.#antibot[antibot] = (this.#antibot[antibot] ?? 0) + 1;
     }
     if (drop === undefined && response) {
-      drop = this.#labelResponse(request, response.status(), {
-        contentType,
-        bytes,
-        sniffed,
-        hasBody: buffer !== undefined,
-      });
-      // Only data and error pages kept as evidence have their body saved.
-      const keep =
-        drop === undefined ||
-        (drop === 'http_error' && this.#keepErrorBody(sniffed, bytes));
-      if (!keep) {
-        buffer = undefined;
-      }
+      drop = labelResponse(
+        {
+          url: request.url(),
+          status: response.status(),
+          contentType,
+          bytes,
+          format: sniffed?.format,
+          hasBody: buffer !== undefined,
+        },
+        this.#rules,
+      );
+    }
+    if (drop === 'too_large') {
+      bodyError = `body too large (${bytes} bytes)`;
+    }
+    const destination = bodyDestination(drop, sniffed?.format, bytes);
+    if (!destination) {
+      buffer = undefined;
     }
 
     // Looked up and claimed without an await in between, so two copies
@@ -445,10 +347,10 @@ export class NetworkCapture {
     const first =
       postData !== undefined || buffer ? this.#bodies.get(key) : undefined;
 
-    let bodyFile: string | undefined;
+    let savedFile: string | undefined;
     let requestBodyFile: string | undefined;
     if (first) {
-      bodyFile = first.bodyFile;
+      savedFile = first.responseFile;
       requestBodyFile = first.requestBodyFile;
       this.#duplicates++;
     } else {
@@ -456,9 +358,9 @@ export class NetworkCapture {
         requestBodyFile = `${reqid}.network-request`;
       }
       if (buffer) {
-        bodyFile = `${reqid}.network-response`;
+        savedFile = `${reqid}.network-response`;
       }
-      this.#bodies.set(key, {reqid, bodyFile, requestBodyFile});
+      this.#bodies.set(key, {reqid, responseFile: savedFile, requestBodyFile});
       if (postData !== undefined) {
         await fs.writeFile(`${base}.network-request`, postData);
       }
@@ -467,6 +369,10 @@ export class NetworkCapture {
         this.#bytes += bytes;
       }
     }
+    // bodyFile is what the data readers use; a kept body of a request that
+    // is not data is only evidence.
+    const bodyFile = destination === 'body' ? savedFile : undefined;
+    const evidenceFile = destination === 'evidence' ? savedFile : undefined;
 
     const data = drop === undefined;
     const frame = request.frame();
@@ -493,6 +399,7 @@ export class NetworkCapture {
       fromCache: response?.fromCache() || undefined,
       ...sniffed,
       bodyFile,
+      evidenceFile,
       bodyError,
       requestBodyFile,
       duplicateOf: first?.reqid,
@@ -509,6 +416,7 @@ export class NetworkCapture {
       format: sniffed?.format,
       fromCache: meta.fromCache,
       bodyFile,
+      evidenceFile,
       requestBodyFile,
       duplicateOf: first?.reqid,
       finishedAt: meta.finishedAt,
@@ -525,7 +433,7 @@ export class NetworkCapture {
       this.#data++;
     } else if (drop) {
       this.#dropped[drop] = (this.#dropped[drop] ?? 0) + 1;
-      if (drop === 'tracker' && request.failure()) {
+      if (drop === 'tracker' && failed) {
         this.#blocked++;
       }
     }

@@ -31,6 +31,7 @@ interface CapturedRow {
   format?: string;
   fromCache?: boolean;
   antibot?: string;
+  evidenceFile?: string;
 }
 
 async function readLines(dir: string): Promise<CapturedRow[]> {
@@ -688,6 +689,71 @@ describe('NetworkCapture', () => {
         }
       },
       {blockedUrlPattern: [server.getRoute('/c/blocked')]},
+    );
+  });
+
+  it('keeps small bodies of ignored hosts and beacons as evidence', async () => {
+    const reply = (type: string, body: string) => {
+      return (_req: IncomingMessage, res: ServerResponse) => {
+        res.setHeader('Content-Type', type);
+        res.end(body);
+      };
+    };
+    server.addRoute('/widget/config', reply('application/json', '{"a":1}'));
+    server.addRoute(
+      '/widget/big',
+      reply('application/json', JSON.stringify({x: 'y'.repeat(20_000)})),
+    );
+    server.addRoute('/pixel', reply('text/plain', 'ok'));
+    server.addHtmlRoute(
+      '/evidence',
+      html`<script>
+        fetch('/widget/config');
+        fetch('/widget/big');
+        fetch('/pixel', {method: 'POST', body: 'e=1'});
+      </script>`,
+    );
+    const captureFilter = CaptureFilter.parse(
+      JSON.stringify({
+        version: 1,
+        ignore: ['localhost/widget'],
+        ignore_paths: ['/pixel'],
+      }),
+      'test',
+    );
+
+    await withCaptureRoot(
+      async (root, response, context) => {
+        const page = await openCaptured(
+          response,
+          context,
+          server.getRoute('/evidence'),
+          'evidence',
+        );
+        await context.stopCapture(page);
+        const dir = path.join(root, 'evidence');
+        const rows = await readLines(dir);
+
+        const config = byPath(rows, '/widget/config');
+        assert.strictEqual(config.drop, 'ignored_host');
+        assert.strictEqual(config.bodyFile, undefined, 'not data');
+        assert.ok(config.evidenceFile);
+        assert.strictEqual(
+          await fs.readFile(path.join(dir, config.evidenceFile), 'utf8'),
+          '{"a":1}',
+        );
+        assert.strictEqual(config.format, 'json');
+
+        const big = byPath(rows, '/widget/big');
+        assert.strictEqual(big.drop, 'ignored_host');
+        assert.strictEqual(big.evidenceFile, undefined, 'over 16 KB');
+
+        const pixel = byPath(rows, '/pixel');
+        assert.strictEqual(pixel.drop, 'beacon');
+        assert.strictEqual(pixel.bodyFile, undefined);
+        assert.ok(pixel.evidenceFile);
+      },
+      {captureFilter},
     );
   });
 });
