@@ -465,6 +465,7 @@ describe('NetworkCapture', () => {
     server.addRoute('/api/log', reply(200, 'application/json', bigJson));
     server.addRoute('/photo', reply(200, 'image/png', Buffer.from([1, 2, 3])));
     server.addRoute('/plain-json', reply(200, 'text/plain', '{"price": 5}'));
+    server.addRoute('/icon.svg', reply(200, 'text/plain', '<svg></svg>'));
     server.addRoute(
       '/xssi',
       reply(
@@ -484,6 +485,7 @@ describe('NetworkCapture', () => {
         fetch('/photo');
         fetch('/plain-json');
         fetch('/xssi');
+        fetch('/icon.svg');
       </script>`,
     );
     const captureFilter = CaptureFilter.parse(
@@ -511,6 +513,7 @@ describe('NetworkCapture', () => {
         assert.strictEqual(row('/api/log').data, true, 'big JSON stays data');
         assert.strictEqual(row('/api/log').format, 'json');
         assert.strictEqual(row('/photo').drop, 'static');
+        assert.strictEqual(row('/icon.svg').drop, 'static');
         assert.strictEqual(row('/plain-json').data, true);
         assert.strictEqual(row('/plain-json').format, 'json');
         assert.strictEqual(row('/xssi').format, 'json');

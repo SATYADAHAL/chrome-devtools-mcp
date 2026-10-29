@@ -36,6 +36,10 @@ const MANIFEST_INTERVAL_MS = 1000;
 // callback parameter marks a .js URL as JSONP (reviews.js?callback=cb).
 const STATIC_SCRIPT_RE = /\.m?js$/i;
 const JSONP_PARAMS = ['callback', 'jsonp', 'cb', 'jsoncallback'];
+// Static files by extension, whatever the resource type (SVG icons fetched
+// by XHR).
+const STATIC_FILE_RE =
+  /\.(?:css|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|eot|otf|mp4|webm|map)$/i;
 
 /** Why a request is not data. */
 export type DropReason =
@@ -287,15 +291,21 @@ export class NetworkCapture {
     if (!this.#resourceTypes.has(type)) {
       return 'static';
     }
-    if (type === 'script') {
-      try {
-        const url = new URL(request.url());
-        if (!isJsonp(url) && STATIC_SCRIPT_RE.test(url.pathname)) {
-          return 'static';
-        }
-      } catch {
-        return 'static';
-      }
+    let url: URL;
+    try {
+      url = new URL(request.url());
+    } catch {
+      return 'static';
+    }
+    if (STATIC_FILE_RE.test(url.pathname)) {
+      return 'static';
+    }
+    if (
+      type === 'script' &&
+      !isJsonp(url) &&
+      STATIC_SCRIPT_RE.test(url.pathname)
+    ) {
+      return 'static';
     }
     // An allowed host is data whatever the other lists say.
     if (hostRule === 'block') {

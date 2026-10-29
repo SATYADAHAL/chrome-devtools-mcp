@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "block": [
     "google-analytics.com",
     "analytics.google.com",
@@ -33,7 +33,10 @@
     "tr.snapchat.com",
     "bat.bing.com",
     "cfjump.com",
-    "cloudflareinsights.com"
+    "cloudflareinsights.com",
+    "contentsquare.net",
+    "imrworldwide.com",
+    "c360a.salesforce.com"
   ],
   "block_subdomains": ["gtm", "sgtm"],
   "ignore": [
@@ -79,7 +82,16 @@
     "afterpay.com",
     "klarna.com",
     "klarnacdn.net",
-    "klarnaservices.com"
+    "klarnaservices.com",
+    "stripe.com",
+    "stripe.network",
+    "cookiepro.com",
+    "fitanalytics.com",
+    "signifyd.com",
+    "online-metrix.net",
+    "riskified.com",
+    "powl.io",
+    "/cart.js"
   ],
   "allow": [
     "bazaarvoice.com",
@@ -95,7 +107,6 @@
     "algolianet.com",
     "algolia.io",
     "searchspring.io",
-    "searchspring.net",
     "klevu.com",
     "ksearchnet.com",
     "cnstrc.com",
@@ -118,6 +129,7 @@
     "/analytics",
     "/track",
     "/tracking",
-    "/log"
+    "/log",
+    "/click-stream"
   ]
 }

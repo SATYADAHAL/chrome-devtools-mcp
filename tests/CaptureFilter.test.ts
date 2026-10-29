@@ -162,6 +162,13 @@ describe('CaptureFilter', () => {
       ],
       ['https://abc-dsn.algolia.net/1/indexes/*/queries', 'allow'],
       ['https://shop.myshopify.com/products/red-shoe.json', 'allow'],
+      ['https://ppm.stripe.com/config?amount=1', 'ignore'],
+      ['https://cookie-cdn.cookiepro.com/consent/x/en.json', 'ignore'],
+      ['https://www.kookai.com.au/cart.js', 'ignore'],
+      ['https://c.ba.contentsquare.net/pageview', 'block'],
+      // a review vendor's analytics host is not covered by allow
+      ['https://analytics.searchspring.net/beacon/v2/x/pageview', undefined],
+      ['https://m93bm6.a.searchspring.io/api/search/search.json', 'allow'],
       // real data stays data
       ['https://shop-default-rtdb.firebaseio.com/products.json', undefined],
       ['https://firestore.googleapis.com/v1/projects/x/documents', undefined],
