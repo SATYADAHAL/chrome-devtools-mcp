@@ -20,6 +20,7 @@
     "docs:generate": "node scripts/generate-docs.ts",
     "start": "npm run build && node build/src/bin/chrome-devtools-mcp.js",
     "start-debug": "DEBUG=mcp:* DEBUG_COLORS=false npm run build && node build/src/bin/chrome-devtools-mcp.js",
+    "capture:relabel": "node build/src/bin/relabel-capture.js",
     "test": "npm run build && node scripts/test.mjs",
     "test:no-build": "node scripts/test.mjs",
     "test:only": "npm run build && node scripts/test.mjs --test-only",

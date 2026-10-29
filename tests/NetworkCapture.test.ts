@@ -14,6 +14,7 @@ import {describe, it} from 'node:test';
 import {CaptureFilter} from '../src/CaptureFilter.js';
 import type {McpContext} from '../src/McpContext.js';
 import type {McpResponse} from '../src/McpResponse.js';
+import {relabelCapture} from '../src/relabelCapture.js';
 import {stopCapture} from '../src/tools/network.js';
 import {newPage} from '../src/tools/pages.js';
 
@@ -32,6 +33,7 @@ interface CapturedRow {
   fromCache?: boolean;
   antibot?: string;
   evidenceFile?: string;
+  bodyMissing?: boolean;
 }
 
 async function readLines(dir: string): Promise<CapturedRow[]> {
@@ -754,6 +756,89 @@ describe('NetworkCapture', () => {
         assert.ok(pixel.evidenceFile);
       },
       {captureFilter},
+    );
+  });
+
+  it('relabels a saved capture with another filter', async () => {
+    const json = (body: string) => {
+      return (_req: IncomingMessage, res: ServerResponse) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(body);
+      };
+    };
+    server.addRoute('/r/widget', json('{"widget":1}'));
+    server.addRoute('/r/api', json('{"price":5}'));
+    server.addRoute('/r/ads', json('{"ad":1}'));
+    server.addHtmlRoute(
+      '/relabel',
+      html`<script>
+        fetch('/r/widget');
+        fetch('/r/api');
+        fetch('/r/ads');
+      </script>`,
+    );
+    const before = CaptureFilter.parse(
+      JSON.stringify({
+        version: 1,
+        ignore: ['localhost/r/widget'],
+        block: ['localhost/r/ads'],
+      }),
+      'before.json',
+    );
+    const after = CaptureFilter.parse(
+      JSON.stringify({version: 2, ignore: ['localhost/r/api']}),
+      'after.json',
+    );
+
+    await withCaptureRoot(
+      async (root, response, context) => {
+        const page = await openCaptured(
+          response,
+          context,
+          server.getRoute('/relabel'),
+          'relabel',
+        );
+        await context.stopCapture(page);
+        const dir = path.join(root, 'relabel');
+
+        const result = await relabelCapture(dir, after);
+        assert.deepStrictEqual(result.changed, {
+          'ignored_host -> data': 1,
+          'data -> ignored_host': 1,
+          'tracker -> data': 1,
+        });
+        assert.strictEqual(result.bodyMissing, 1);
+
+        const rows = await readLines(dir);
+        const widget = byPath(rows, '/r/widget');
+        assert.strictEqual(widget.data, true);
+        assert.ok(widget.bodyFile, 'evidence promoted to data');
+        assert.strictEqual(widget.evidenceFile, undefined);
+
+        const api = byPath(rows, '/r/api');
+        assert.strictEqual(api.drop, 'ignored_host');
+        assert.strictEqual(api.bodyFile, undefined);
+        assert.ok(api.evidenceFile, 'the body is kept, not deleted');
+        assert.ok(await fs.stat(path.join(dir, api.evidenceFile)));
+
+        const ads = byPath(rows, '/r/ads');
+        assert.strictEqual(ads.data, true);
+        assert.strictEqual(ads.bodyMissing, true);
+
+        const meta = JSON.parse(
+          await fs.readFile(path.join(dir, 'capture.json'), 'utf8'),
+        );
+        assert.strictEqual(meta.filter_version, 2);
+        assert.strictEqual(meta.relabeledFrom, 1);
+        assert.strictEqual(meta.data, rows.filter(row => row.data).length);
+        assert.ok(await fs.stat(path.join(dir, 'requests.v1.jsonl')));
+        const reqMeta = JSON.parse(
+          await fs.readFile(path.join(dir, `${api.reqid}.json`), 'utf8'),
+        );
+        assert.strictEqual(reqMeta.drop, 'ignored_host');
+        assert.ok(reqMeta.requestHeaders, 'other metadata kept');
+      },
+      {captureFilter: before},
     );
   });
 });

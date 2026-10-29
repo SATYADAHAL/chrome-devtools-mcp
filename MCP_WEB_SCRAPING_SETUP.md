@@ -164,6 +164,22 @@ Entry syntax: `segment.com` matches the domain and its subdomains (`cdn.segment.
 
 `capture.json` records `filter_version` and `filter_source`, so a run can be traced back to the rules that labelled it.
 
+### Relabel saved runs
+
+Labels are written at capture time. After the filter changes, re-apply it to saved folders without a browser:
+
+```bash
+npm run build
+npm run capture:relabel -- runs/card_a/network runs/card_b/network [--capture-filter my-filter.json]
+```
+
+It rewrites the labels in `requests.jsonl` and each `<reqid>.json`, recomputes the counts in `capture.json` (with `relabeledFrom` and `relabeledAt`), and keeps the previous `requests.jsonl` as `requests.v<old version>.jsonl`. It prints the label changes per folder, e.g. `data -> ignored_host: 36, beacon -> data: 1`.
+
+- Body files are never deleted: a saved body is referenced as `bodyFile` when its request is now data, as `evidenceFile` otherwise.
+- A request that becomes data but whose body was never saved (dropped before its body was read, or over the 16 KB evidence limit) gets `bodyMissing: true`; only a new run can get it.
+- Requests Chrome refused stay `tracker`: they never loaded.
+- It also works on folders captured before the labels existed (every line counted as data then).
+
 ### Anti-bot hints
 
 A line gets `antibot: "<vendor>"` (`cloudflare`, `datadome`, `perimeterx`, `kasada`, `imperva`, `akamai`, `aws_waf`, `queue-it`) from vendor headers (`cf-mitigated`, `x-datadome`, `x-kpsdk-*`, `x-iinfo`, `x-amzn-waf-action`), cookies (`datadome`, `_px*`, `incap_ses_*`, `aws-waf-token`), vendor script or challenge URLs, `server: AkamaiGHost` on a 403 / 429 / 503, or challenge text in a 403 / 429 / 503 body. Such an HTML error page with no known vendor is `unknown`. Detection only: nothing tries to get around it.
