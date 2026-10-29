@@ -30,6 +30,7 @@ interface CapturedRow {
   drop?: string;
   format?: string;
   fromCache?: boolean;
+  antibot?: string;
 }
 
 async function readLines(dir: string): Promise<CapturedRow[]> {
@@ -569,6 +570,43 @@ describe('NetworkCapture', () => {
       assert.strictEqual(served, 2, 'keepCache uses the cache');
       const kept = byPath(await readLines(path.join(root, 'kept')), '/cached');
       assert.strictEqual(kept.fromCache, true);
+    });
+  });
+
+  it('marks responses that point at an anti-bot vendor', async () => {
+    server.addRoute('/blocked-page', (_req, res) => {
+      res.statusCode = 403;
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('cf-mitigated', 'challenge');
+      res.end('<html><title>Just a moment...</title></html>');
+    });
+    server.addRoute('/fine', (_req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.end('{"ok": true}');
+    });
+    server.addHtmlRoute(
+      '/antibot',
+      html`<script>
+        fetch('/blocked-page');
+        fetch('/fine');
+      </script>`,
+    );
+
+    await withCaptureRoot(async (root, response, context) => {
+      const page = await openCaptured(
+        response,
+        context,
+        server.getRoute('/antibot'),
+        'antibot',
+      );
+      const summary = await context.stopCapture(page);
+      const rows = await readLines(path.join(root, 'antibot'));
+      const blocked = byPath(rows, '/blocked-page');
+      assert.strictEqual(blocked.antibot, 'cloudflare');
+      assert.strictEqual(blocked.drop, 'http_error');
+      assert.ok(blocked.bodyFile, 'challenge page kept as evidence');
+      assert.strictEqual(byPath(rows, '/fine').antibot, undefined);
+      assert.deepStrictEqual(summary?.antibot, {cloudflare: 1});
     });
   });
 });

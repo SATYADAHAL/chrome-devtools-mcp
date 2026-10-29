@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import {detectAntibot} from './antibot.js';
 import {type SniffedBody, sniffBody} from './bodyFormat.js';
 import type {CaptureFilter} from './CaptureFilter.js';
 import {logger} from './logger.js';
@@ -26,6 +27,8 @@ const MAX_ERROR_BODY_BYTES = 200_000;
 // A URL matching ignore_paths is a beacon unless it returns more JSON than
 // this.
 const MAX_BEACON_JSON_BYTES = 4_096;
+// How much of a body is searched for anti-bot challenge text.
+const ANTIBOT_BODY_BYTES = 50_000;
 // capture.json is rewritten at most this often while a capture runs.
 const MANIFEST_INTERVAL_MS = 1000;
 // Static bundles are scripts too; only script requests that are not plain
@@ -66,6 +69,8 @@ export interface CaptureSummary {
   dropped: Partial<Record<DropReason, number>>;
   blocked: number;
   duplicates: number;
+  // Responses pointing at an anti-bot vendor, per vendor.
+  antibot: Record<string, number>;
   bytes: number;
   failed: number;
 }
@@ -137,6 +142,7 @@ export class NetworkCapture {
   #dropped: Partial<Record<DropReason, number>> = {};
   #blocked = 0;
   #duplicates = 0;
+  #antibot: Record<string, number> = {};
   #bytes = 0;
   #failed = 0;
   #bodies = new Map<string, SavedBody>();
@@ -231,6 +237,7 @@ export class NetworkCapture {
       dropped: {...this.#dropped},
       blocked: this.#blocked,
       duplicates: this.#duplicates,
+      antibot: {...this.#antibot},
       bytes: this.#bytes,
       failed: this.#failed,
     };
@@ -387,6 +394,16 @@ export class NetworkCapture {
       drop ??= 'too_large';
     }
     const sniffed = buffer ? sniffBody(buffer, contentType) : undefined;
+    // Before a dropped body is let go: a challenge page names its vendor.
+    const antibot = detectAntibot({
+      url: request.url(),
+      status: response?.status(),
+      headers: response?.headers() ?? {},
+      body: buffer?.subarray(0, ANTIBOT_BODY_BYTES).toString('utf8'),
+    });
+    if (antibot) {
+      this.#antibot[antibot] = (this.#antibot[antibot] ?? 0) + 1;
+    }
     if (drop === undefined && response) {
       drop = this.#labelResponse(request, response.status(), {
         contentType,
@@ -448,6 +465,7 @@ export class NetworkCapture {
       resourceType: request.resourceType(),
       data,
       drop,
+      antibot,
       isNavigationRequest: request.isNavigationRequest(),
       frameUrl: frame?.url(),
       isMainFrame: frame ? frame.parentFrame() === null : undefined,
@@ -482,6 +500,7 @@ export class NetworkCapture {
       finishedAt: meta.finishedAt,
       data,
       drop,
+      antibot,
     };
     await fs.appendFile(
       path.join(this.#dir, 'requests.jsonl'),
