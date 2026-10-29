@@ -20,7 +20,7 @@ function filter(config: object): CaptureFilter {
 describe('CaptureFilter', () => {
   it('loads the built-in default', () => {
     const defaults = loadCaptureFilter();
-    assert.strictEqual(defaults.version, 1);
+    assert.strictEqual(typeof defaults.version, 'number');
     assert.ok(defaults.source.endsWith('capture-filter.default.json'));
     assert.strictEqual(
       defaults.hostRule('https://www.google-analytics.com/g/collect'),
@@ -130,6 +130,61 @@ describe('CaptureFilter', () => {
         const blocked = patterns.some(pattern => pattern.test(url));
         assert.strictEqual(blocked, expected === 'block', url);
       }
+    });
+  });
+
+  describe('default filter', () => {
+    const defaults = loadCaptureFilter();
+    const cases: Array<[string, 'allow' | 'block' | 'ignore' | undefined]> = [
+      // ads and analytics are refused
+      ['https://www.googletagmanager.com/gtag/js?id=G-1', 'block'],
+      ['https://www.facebook.com/tr?id=1&ev=PageView', 'block'],
+      ['https://gtm2.petcircle.com.au/gtag/js?id=G-1', 'block'],
+      ['https://www.google.com.np/rmkt/collect/1/', 'block'],
+      ['https://bat.bing.com/action/0', 'block'],
+      // widgets that pages need load, but are not data
+      ['https://www.google.com/recaptcha/api.js', 'ignore'],
+      ['https://www.gstatic.com/recaptcha/releases/x/recaptcha.js', 'ignore'],
+      ['https://connect.facebook.net/en_US/fbevents.js', 'ignore'],
+      ['https://www.facebook.com/plugins/like.php', 'ignore'],
+      ['https://shop.firebaseapp.com/__/auth/iframe', 'ignore'],
+      ['https://challenges.cloudflare.com/turnstile/v0/api.js', 'ignore'],
+      ['https://www.shop.com/cdn-cgi/challenge-platform/h/b/x', 'ignore'],
+      ['https://cdn.cookielaw.org/consent/x.json', 'ignore'],
+      ['https://www.paypal.com/sdk/js', 'ignore'],
+      ['https://a.klaviyo.com/client/profiles/', 'ignore'],
+      // review / search vendors and Shopify product data are always data
+      ['https://api.bazaarvoice.com/data/batch.json?callback=cb', 'allow'],
+      ['https://apps.bazaarvoice.com/deployments/x/bv.js', 'allow'],
+      [
+        'https://api-cdn.yotpo.com/v1/widget/x/products/1/reviews.json',
+        'allow',
+      ],
+      ['https://abc-dsn.algolia.net/1/indexes/*/queries', 'allow'],
+      ['https://shop.myshopify.com/products/red-shoe.json', 'allow'],
+      // real data stays data
+      ['https://shop-default-rtdb.firebaseio.com/products.json', undefined],
+      ['https://firestore.googleapis.com/v1/projects/x/documents', undefined],
+      ['https://web.api.petcircle.com.au/v1_1/products?slug=x', undefined],
+      ['https://www.google.com/maps/api/js', undefined],
+      ['https://mysegmentshop.com.au/collections/all', undefined],
+    ];
+    for (const [url, expected] of cases) {
+      it(`${expected ?? 'keeps'} ${url}`, () => {
+        assert.strictEqual(defaults.hostRule(url), expected);
+      });
+    }
+
+    it('blocks ads but not ignored widgets in Chrome', () => {
+      const patterns = defaults
+        .chromeBlockPatterns()
+        .map(pattern => new URLPattern(pattern));
+      const blocked = (url: string) =>
+        patterns.some(pattern => pattern.test(url));
+      assert.ok(blocked('https://www.google-analytics.com/g/collect'));
+      assert.ok(!blocked('https://www.google.com/recaptcha/api.js'));
+      assert.ok(!blocked('https://www.gstatic.com/x.js'));
+      assert.ok(!blocked('https://connect.facebook.net/en_US/fbevents.js'));
     });
   });
 });

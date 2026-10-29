@@ -53,6 +53,10 @@ function isDomainOf(domain: string, host: string): boolean {
 }
 
 function hostMatches(entry: Entry, host: string): boolean {
+  if (!entry.host) {
+    // A path-only entry (`/cdn-cgi/`) applies to every host.
+    return true;
+  }
   if (!entry.anySuffix) {
     return isDomainOf(entry.host, host);
   }
@@ -109,7 +113,8 @@ function escapePattern(text: string): string {
  * Host entries match the domain and its subdomains (`segment.com` matches
  * `cdn.segment.com`, not `mysegmentshop.com`); entries with a `/` also need
  * the URL path to start with the given path (`facebook.com/tr`); `google.*`
- * matches the domain under any public suffix (`google.com.au`).
+ * matches the domain under any public suffix (`google.com.au`); an entry
+ * starting with `/` is a path prefix on any host (`/cdn-cgi/`).
  * `block_subdomains` blocks first-party proxies by their first host label on
  * any site (`gtm` blocks gtm2.shop.com, the Google Tag Manager proxy).
  */
@@ -182,9 +187,11 @@ export class CaptureFilter {
   chromeBlockPatterns(): string[] {
     const patterns: string[] = [];
     for (const entry of this.#block) {
+      // Path-only allow entries cannot be checked against hosts.
       const overlaps = this.#allow.some(
         allow =>
-          hostMatches(entry, allow.host) || hostMatches(allow, entry.host),
+          allow.host !== '' &&
+          (hostMatches(entry, allow.host) || hostMatches(allow, entry.host)),
       );
       if (overlaps) {
         logger?.(
@@ -212,8 +219,11 @@ export class CaptureFilter {
   }
 
   #urlPatterns(entry: Entry): string[] {
-    const host = escapePattern(entry.host) + (entry.anySuffix ? '.*' : '');
     const pathname = `${escapePattern(entry.path || '/')}*`;
+    if (!entry.host) {
+      return [`*://*${pathname}`];
+    }
+    const host = escapePattern(entry.host) + (entry.anySuffix ? '.*' : '');
     return [`*://${host}${pathname}`, `*://*.${host}${pathname}`];
   }
 }
