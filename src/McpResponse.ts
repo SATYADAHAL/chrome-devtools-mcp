@@ -15,6 +15,7 @@ import {NetworkFormatter} from './formatters/NetworkFormatter.js';
 import {SnapshotFormatter} from './formatters/SnapshotFormatter.js';
 import type {McpContext} from './McpContext.js';
 import type {McpPage} from './McpPage.js';
+import type {CaptureSummary} from './NetworkCapture.js';
 import {UncaughtError} from './PageCollector.js';
 import {TextSnapshot} from './TextSnapshot.js';
 import {DevTools, getToonEncode, type Protocol} from './third_party/index.js';
@@ -246,6 +247,7 @@ export class McpResponse implements Response {
   #listWebMcpTools?: boolean;
   #devToolsData?: DevToolsData;
   #tabId?: string;
+  #capture?: {pageId: number; dir: string} | CaptureSummary;
   #args: ParsedArguments;
   #page?: McpPage;
   #redactNetworkHeaders = true;
@@ -270,6 +272,10 @@ export class McpResponse implements Response {
 
   attachDevToolsData(data: DevToolsData): void {
     this.#devToolsData = data;
+  }
+
+  setCapture(capture: {pageId: number; dir: string} | CaptureSummary): void {
+    this.#capture = capture;
   }
 
   setTabId(tabId: string): void {
@@ -815,6 +821,7 @@ export class McpResponse implements Response {
       snapshot?: object;
       snapshotFilePath?: string;
       tabId?: string;
+      capture?: object;
       networkRequest?: object;
       networkRequests?: object[];
       consoleMessage?: object;
@@ -1024,6 +1031,10 @@ Call ${handleDialog.name} to handle it before continuing.`);
 
     if (this.#tabId) {
       structuredContent.tabId = this.#tabId;
+    }
+
+    if (this.#capture) {
+      structuredContent.capture = this.#capture;
     }
 
     if (data.traceSummary) {

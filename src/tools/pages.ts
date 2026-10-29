@@ -216,6 +216,17 @@ export const newPage = defineTool(args => {
               ),
           }
         : {}),
+      ...(args?.captureRoot
+        ? {
+            captureDir: zod
+              .string()
+              .optional()
+              .describe(
+                'Folder inside the capture root to save the network traffic of this tab to, from its first request on. ' +
+                  'Must not exist yet or be empty. Call stop_capture before reading the files. When omitted, nothing is saved.',
+              ),
+          }
+        : {}),
       ...timeoutSchema,
     },
     blockedByDialog: false,
@@ -225,6 +236,24 @@ export const newPage = defineTool(args => {
         request.params.background,
         request.params.isolatedContext,
       );
+
+      if (request.params.captureDir) {
+        // Started before goto, so the document and the first requests are saved.
+        try {
+          const dir = await context.startCapture(
+            page,
+            request.params.captureDir,
+            request.params.url,
+          );
+          response.appendResponseLine(
+            `Capturing network traffic of page ${page.id} to ${dir}`,
+          );
+          response.setCapture({pageId: page.id, dir});
+        } catch (error) {
+          await context.closePage(page.id).catch(() => undefined);
+          throw error;
+        }
+      }
 
       await navigateWithInterception(
         page,

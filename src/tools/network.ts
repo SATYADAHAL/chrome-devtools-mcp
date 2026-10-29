@@ -8,6 +8,7 @@ import {isUtf8} from 'node:buffer';
 
 import {toPython, toPythonHttp} from 'curlconverter';
 
+import {SCRAPE_TRACKER_PATTERNS} from '../scrapeTrackers.js';
 import {zod} from '../third_party/index.js';
 import type {HTTPRequest, ResourceType} from '../third_party/index.js';
 
@@ -36,33 +37,13 @@ const FILTERABLE_RESOURCE_TYPES: readonly [ResourceType, ...ResourceType[]] = [
   'other',
 ];
 
-const SCRAPE_EXCLUDE_PATTERNS = [
-  'https://*google-analytics*',
-  'https://*analytics.google*',
-  'https://*googletagmanager*',
-  'https://*doubleclick*',
-  'https://*clarity.ms*',
-  'https://*facebook*',
-  'https://*recaptcha*',
-  'https://*firebase*',
-  'https://*gstatic*',
-  'https://*hotjar*',
-  'https://*mouseflow*',
-  'https://*fullstory*',
-  'https://*crazyegg*',
-  'https://*amplitude*',
-  'https://*mixpanel*',
-  'https://*segment*',
-  'https://*sentry*',
-];
-
 export const listNetworkRequests = definePageTool(cliArgs => {
   const scrapeMode = cliArgs?.scrape ?? false;
   const defaultResourceTypes: ResourceType[] | undefined = scrapeMode
     ? ['document', 'xhr', 'fetch']
     : undefined;
   const defaultExcludePatterns: string[] | undefined = scrapeMode
-    ? SCRAPE_EXCLUDE_PATTERNS
+    ? SCRAPE_TRACKER_PATTERNS
     : undefined;
 
   return {
@@ -132,8 +113,7 @@ export const listNetworkRequests = definePageTool(cliArgs => {
       response.setIncludeNetworkRequests(true, {
         pageSize: request.params.pageSize,
         pageIdx: request.params.pageIdx,
-        resourceTypes:
-          request.params.resourceTypes ?? defaultResourceTypes,
+        resourceTypes: request.params.resourceTypes ?? defaultResourceTypes,
         includePreservedRequests: request.params.includePreservedRequests,
         networkRequestIdInDevToolsUI: reqid,
         excludeUrlPatterns:
@@ -222,15 +202,18 @@ async function generateCurlViaDevToolsSdk(
         }
 
         if (/[\0-\x1F\x7F-\x9F!]|\'/.test(str)) {
-          return '$\'' +
-            str.replace(/\\/g, '\\\\')
-              .replace(/\'/g, '\\\'')
+          return (
+            "$'" +
+            str
+              .replace(/\\/g, '\\\\')
+              .replace(/\'/g, "\\'")
               .replace(/\n/g, '\\n')
               .replace(/\r/g, '\\r')
               .replace(/[\0-\x1F\x7F-\x9F!]/g, escapeCharacter) +
-            '\'';
+            "'"
+          );
         }
-        return '\'' + str + '\'';
+        return "'" + str + "'";
       }
 
       const SDK = await import('/bundled/core/sdk/' + 'sdk.js');
@@ -245,12 +228,21 @@ async function generateCurlViaDevToolsSdk(
 
       const command: string[] = [];
       const ignoredHeaders = new Set([
-        'accept-encoding', 'host', 'method', 'path', 'scheme',
-        'version', 'authority', 'protocol',
+        'accept-encoding',
+        'host',
+        'method',
+        'path',
+        'scheme',
+        'version',
+        'authority',
+        'protocol',
       ]);
 
       const validUrl = networkRequest.url();
-      command.push('--url ' + (await escapeStringPosix(validUrl)).replace(/[[{}\]]/g, '\\$&'));
+      command.push(
+        '--url ' +
+          (await escapeStringPosix(validUrl)).replace(/[[{}\]]/g, '\\$&'),
+      );
 
       let inferredMethod = 'GET';
       const data: string[] = [];
@@ -262,7 +254,9 @@ async function generateCurlViaDevToolsSdk(
       }
 
       if (networkRequest.requestMethod !== inferredMethod) {
-        command.push('-X ' + (await escapeStringPosix(networkRequest.requestMethod)));
+        command.push(
+          '-X ' + (await escapeStringPosix(networkRequest.requestMethod)),
+        );
       }
 
       const requestHeaders = networkRequest.requestHeaders();
@@ -420,7 +414,11 @@ async function buildCurlCommandFallback(request: HTTPRequest): Promise<string> {
 
 const SNIPPET_CONTEXT = 60;
 
-function findSnippet(text: string, matchIndex: number, matchLength: number): string {
+function findSnippet(
+  text: string,
+  matchIndex: number,
+  matchLength: number,
+): string {
   const start = Math.max(0, matchIndex - SNIPPET_CONTEXT);
   const end = Math.min(text.length, matchIndex + matchLength + SNIPPET_CONTEXT);
   const prefix = start > 0 ? '...' : '';
@@ -523,10 +521,7 @@ export const searchNetwork = definePageTool(cliArgs => {
       const pattern = request.params.pattern;
       const includePreserved = request.params.includePreservedRequests ?? false;
 
-      let requests = context.getNetworkRequests(
-        request.page,
-        includePreserved,
-      );
+      let requests = context.getNetworkRequests(request.page, includePreserved);
 
       const typesFilter = request.params.resourceTypes ?? defaultResourceTypes;
       if (typesFilter?.length) {
@@ -534,83 +529,61 @@ export const searchNetwork = definePageTool(cliArgs => {
         requests = requests.filter(r => types.has(r.resourceType()));
       }
 
-    interface Match {
-      reqid: number;
-      method: string;
-      url: string;
-      status: string;
-      resourceType: string;
-      matchSource: string;
-      snippet: string;
-    }
-
-    const matches: Match[] = [];
-
-    for (const req of requests) {
-      const reqid = context.getNetworkRequestStableId(req);
-      const method = req.method();
-      const url = req.url();
-      const resourceType = req.resourceType();
-      const httpResponse = req.response();
-      const status = httpResponse
-        ? httpResponse.status().toString()
-        : req.failure()?.errorText ?? 'pending';
-      const finished = context.isNetworkRequestFinished(request.page, reqid);
-
-      // Check URL
-      const urlMatch = searchBody(url, pattern);
-      if (urlMatch) {
-        matches.push({
-          reqid,
-          method,
-          url,
-          status,
-          resourceType,
-          matchSource: 'url',
-          snippet: urlMatch.snippet,
-        });
-        continue;
+      interface Match {
+        reqid: number;
+        method: string;
+        url: string;
+        status: string;
+        resourceType: string;
+        matchSource: string;
+        snippet: string;
       }
 
-      // Check request body (only if request has finished)
-      if (finished && req.hasPostData()) {
-        let body: string | undefined;
-        try {
-          body = req.postData() ?? undefined;
-        } catch {
-          // ignore
+      const matches: Match[] = [];
+
+      for (const req of requests) {
+        const reqid = context.getNetworkRequestStableId(req);
+        const method = req.method();
+        const url = req.url();
+        const resourceType = req.resourceType();
+        const httpResponse = req.response();
+        const status = httpResponse
+          ? httpResponse.status().toString()
+          : (req.failure()?.errorText ?? 'pending');
+        const finished = context.isNetworkRequestFinished(request.page, reqid);
+
+        // Check URL
+        const urlMatch = searchBody(url, pattern);
+        if (urlMatch) {
+          matches.push({
+            reqid,
+            method,
+            url,
+            status,
+            resourceType,
+            matchSource: 'url',
+            snippet: urlMatch.snippet,
+          });
+          continue;
         }
-        if (body === undefined) {
+
+        // Check request body (only if request has finished)
+        if (finished && req.hasPostData()) {
+          let body: string | undefined;
           try {
-            body = await req.fetchPostData();
+            body = req.postData() ?? undefined;
           } catch {
             // ignore
           }
-        }
-        if (body) {
-          const bodyMatch = searchBody(body, pattern);
-          if (bodyMatch) {
-            matches.push({
-              reqid,
-              method,
-              url,
-              status,
-              resourceType,
-              matchSource: 'requestBody',
-              snippet: bodyMatch.snippet,
-            });
-            continue;
+          if (body === undefined) {
+            try {
+              body = await req.fetchPostData();
+            } catch {
+              // ignore
+            }
           }
-        }
-      }
-
-      // Check response body (only if request has finished)
-      if (finished && httpResponse) {
-        try {
-          const buffer = await httpResponse.buffer();
-          if (isUtf8(buffer)) {
-            const text = buffer.toString('utf-8');
-            const bodyMatch = searchBody(text, pattern);
+          if (body) {
+            const bodyMatch = searchBody(body, pattern);
             if (bodyMatch) {
               matches.push({
                 reqid,
@@ -618,37 +591,299 @@ export const searchNetwork = definePageTool(cliArgs => {
                 url,
                 status,
                 resourceType,
-                matchSource: 'responseBody',
+                matchSource: 'requestBody',
                 snippet: bodyMatch.snippet,
               });
+              continue;
             }
           }
-        } catch {
-          // Response body not available
+        }
+
+        // Check response body (only if request has finished)
+        if (finished && httpResponse) {
+          try {
+            const buffer = await httpResponse.buffer();
+            if (isUtf8(buffer)) {
+              const text = buffer.toString('utf-8');
+              const bodyMatch = searchBody(text, pattern);
+              if (bodyMatch) {
+                matches.push({
+                  reqid,
+                  method,
+                  url,
+                  status,
+                  resourceType,
+                  matchSource: 'responseBody',
+                  snippet: bodyMatch.snippet,
+                });
+              }
+            }
+          } catch {
+            // Response body not available
+          }
         }
       }
-    }
 
-    if (matches.length === 0) {
+      if (matches.length === 0) {
+        response.appendResponseLine(
+          `No network requests matched pattern: ${pattern}`,
+        );
+        return;
+      }
+
       response.appendResponseLine(
-        `No network requests matched pattern: ${pattern}`,
+        `Found ${matches.length} network request(s) matching: ${pattern}`,
+      );
+      response.appendResponseLine('');
+
+      for (const match of matches) {
+        response.appendResponseLine(
+          `reqid=${match.reqid} ${match.method} ${match.url} [${match.status}] (${match.resourceType})`,
+        );
+        response.appendResponseLine(`  matched in: ${match.matchSource}`);
+        response.appendResponseLine(`  snippet: ${match.snippet}`);
+        response.appendResponseLine('');
+      }
+    },
+  };
+});
+
+export const searchNetworkMulti = definePageTool(cliArgs => {
+  const scrapeMode = cliArgs?.scrape ?? false;
+  const defaultResourceTypes: ResourceType[] | undefined = scrapeMode
+    ? ['document', 'xhr', 'fetch']
+    : undefined;
+
+  return {
+    name: 'search_network_multi',
+    description: `Search network requests matching any of the provided patterns. Returns up to 5 matching requests by default. Checks URLs, request bodies, and response bodies.${
+      scrapeMode
+        ? ' In scrape mode, only document/xhr/fetch requests are searched by default.'
+        : ''
+    }`,
+    annotations: {
+      category: ToolCategory.NETWORK,
+      readOnlyHint: true,
+    },
+    schema: {
+      patterns: zod
+        .array(zod.string())
+        .describe(
+          'List of text or regex patterns to search for in request/response bodies and URLs. Returns requests that match any pattern.',
+        ),
+      maxResults: zod
+        .number()
+        .int()
+        .positive()
+        .default(5)
+        .optional()
+        .describe(
+          'Maximum number of matching requests to return. Defaults to 5.',
+        ),
+      resourceTypes: zod
+        .array(zod.enum(FILTERABLE_RESOURCE_TYPES))
+        .optional()
+        .describe(
+          `Filter to only search requests of the specified resource types.${
+            scrapeMode
+              ? ' Defaults to document, xhr, fetch in scrape mode.'
+              : ' When omitted or empty, searches all types.'
+          }`,
+        ),
+      includePreservedRequests: zod
+        .boolean()
+        .default(false)
+        .optional()
+        .describe(
+          'Set to true to search preserved requests from the last 3 navigations.',
+        ),
+    },
+    blockedByDialog: false,
+    verifyFilesSchema: [],
+    handler: async (request, response, context) => {
+      const patterns = request.params.patterns;
+      const maxResults = request.params.maxResults ?? 5;
+      const includePreserved = request.params.includePreservedRequests ?? false;
+
+      let requests = context.getNetworkRequests(request.page, includePreserved);
+
+      const typesFilter = request.params.resourceTypes ?? defaultResourceTypes;
+      if (typesFilter?.length) {
+        const types = new Set(typesFilter);
+        requests = requests.filter(r => types.has(r.resourceType()));
+      }
+
+      interface MultiMatch {
+        reqid: number;
+        method: string;
+        url: string;
+        status: string;
+        resourceType: string;
+        matchedPatterns: string[];
+        matchSource: string;
+        snippet: string;
+      }
+
+      const matches: MultiMatch[] = [];
+      const patternCounts: Record<string, number> = {};
+      for (const p of patterns) {
+        patternCounts[p] = 0;
+      }
+
+      for (const req of requests) {
+        if (matches.length >= maxResults) {
+          break;
+        }
+
+        const reqid = context.getNetworkRequestStableId(req);
+        const method = req.method();
+        const url = req.url();
+        const resourceType = req.resourceType();
+        const httpResponse = req.response();
+        const status = httpResponse
+          ? httpResponse.status().toString()
+          : (req.failure()?.errorText ?? 'pending');
+        const finished = context.isNetworkRequestFinished(request.page, reqid);
+
+        const matchedPatterns: string[] = [];
+        let matchInfo: {matchSource: string; snippet: string} | null = null;
+
+        for (const pattern of patterns) {
+          // Check URL
+          const urlMatch = searchBody(url, pattern);
+          if (urlMatch) {
+            matchedPatterns.push(pattern);
+            patternCounts[pattern]++;
+            if (!matchInfo) {
+              matchInfo = {matchSource: 'url', snippet: urlMatch.snippet};
+            }
+          }
+
+          // Check request body (only if request has finished)
+          if (finished && req.hasPostData()) {
+            let body: string | undefined;
+            try {
+              body = req.postData() ?? undefined;
+            } catch {
+              // ignore
+            }
+            if (body === undefined) {
+              try {
+                body = await req.fetchPostData();
+              } catch {
+                // ignore
+              }
+            }
+            if (body) {
+              const bodyMatch = searchBody(body, pattern);
+              if (bodyMatch) {
+                if (!matchedPatterns.includes(pattern)) {
+                  matchedPatterns.push(pattern);
+                  patternCounts[pattern]++;
+                }
+                if (!matchInfo) {
+                  matchInfo = {
+                    matchSource: 'requestBody',
+                    snippet: bodyMatch.snippet,
+                  };
+                }
+              }
+            }
+          }
+
+          // Check response body (only if request has finished)
+          if (finished && httpResponse) {
+            try {
+              const buffer = await httpResponse.buffer();
+              if (isUtf8(buffer)) {
+                const text = buffer.toString('utf-8');
+                const bodyMatch = searchBody(text, pattern);
+                if (bodyMatch) {
+                  if (!matchedPatterns.includes(pattern)) {
+                    matchedPatterns.push(pattern);
+                    patternCounts[pattern]++;
+                  }
+                  if (!matchInfo) {
+                    matchInfo = {
+                      matchSource: 'responseBody',
+                      snippet: bodyMatch.snippet,
+                    };
+                  }
+                }
+              }
+            } catch {
+              // Response body not available
+            }
+          }
+        }
+
+        if (matchedPatterns.length > 0 && matchInfo) {
+          matches.push({
+            reqid,
+            method,
+            url,
+            status,
+            resourceType,
+            matchedPatterns,
+            matchSource: matchInfo.matchSource,
+            snippet: matchInfo.snippet,
+          });
+        }
+      }
+
+      if (matches.length === 0) {
+        response.appendResponseLine(
+          `No network requests matched any of the patterns: ${JSON.stringify(patterns)}`,
+        );
+        return;
+      }
+
+      response.appendResponseLine(
+        `Found ${matches.length} matching request(s) across ${patterns.length} pattern(s):`,
+      );
+      for (const p of patterns) {
+        response.appendResponseLine(`  "${p}" → ${patternCounts[p]} match(es)`);
+      }
+      response.appendResponseLine('');
+
+      for (const match of matches) {
+        response.appendResponseLine(
+          `reqid=${match.reqid} ${match.method} ${match.url} [${match.status}] (${match.resourceType})`,
+        );
+        response.appendResponseLine(
+          `  matched patterns: ${match.matchedPatterns.join(', ')}`,
+        );
+        response.appendResponseLine(`  matched in: ${match.matchSource}`);
+        response.appendResponseLine(`  snippet: ${match.snippet}`);
+        response.appendResponseLine('');
+      }
+    },
+  };
+});
+
+export const stopCapture = definePageTool({
+  name: 'stop_capture',
+  description: `Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and how many requests were saved.`,
+  annotations: {
+    category: ToolCategory.NETWORK,
+    readOnlyHint: false,
+    conditions: ['captureRoot'],
+  },
+  schema: {},
+  blockedByDialog: false,
+  verifyFilesSchema: [],
+  handler: async (request, response, context) => {
+    const summary = await context.stopCapture(request.page);
+    if (!summary) {
+      response.appendResponseLine(
+        'The page is not being captured. Open it with new_page and a captureDir.',
       );
       return;
     }
-
     response.appendResponseLine(
-      `Found ${matches.length} network request(s) matching: ${pattern}`,
+      `Stopped capturing page ${summary.pageId}: ${summary.saved} request(s) saved (${summary.bytes} bytes) to ${summary.dir}` +
+        (summary.failed ? `, ${summary.failed} failed` : ''),
     );
-    response.appendResponseLine('');
-
-    for (const match of matches) {
-      response.appendResponseLine(
-        `reqid=${match.reqid} ${match.method} ${match.url} [${match.status}] (${match.resourceType})`,
-      );
-      response.appendResponseLine(`  matched in: ${match.matchSource}`);
-      response.appendResponseLine(`  snippet: ${match.snippet}`);
-      response.appendResponseLine('');
-    }
+    response.setCapture(summary);
   },
-  };
 });

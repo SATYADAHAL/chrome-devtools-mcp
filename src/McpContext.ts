@@ -19,6 +19,11 @@ import {HeapSnapshotManager} from './HeapSnapshotManager.js';
 import type {AggregatedInfoWithId} from './HeapSnapshotManager.js';
 import {McpPage} from './McpPage.js';
 import {
+  NetworkCapture,
+  resolveCaptureDir,
+  type CaptureSummary,
+} from './NetworkCapture.js';
+import {
   NetworkCollector,
   ConsoleCollector,
   type ListenerMap,
@@ -68,6 +73,10 @@ interface McpContextOptions {
   allowList?: string[];
   // The block list of URL patterns to block loading resources.
   blocklist?: string[];
+  // Folder that per-tab network captures may be written into.
+  captureRoot?: string;
+  // Resource types saved by network captures.
+  captureResourceTypes?: string[];
 }
 
 const DEFAULT_TIMEOUT = 5_000;
@@ -328,12 +337,49 @@ export class McpContext implements Context {
     this.#consoleCollector.addPage(page);
     return this.#getMcpPage(page);
   }
+  /**
+   * Starts saving the network traffic of a page to `dir` (inside the capture
+   * root). Call before the page navigates, or the first requests are missed.
+   */
+  async startCapture(
+    page: McpPage,
+    dir: string,
+    startUrl: string,
+  ): Promise<string> {
+    if (!this.#options.captureRoot) {
+      throw new Error(
+        'Network capture is disabled: start the server with --capture-root.',
+      );
+    }
+    if (this.#networkCollector.getCapture(page.pptrPage)) {
+      throw new Error(`Page ${page.id} is already being captured.`);
+    }
+    const capture = await NetworkCapture.create(
+      resolveCaptureDir(this.#options.captureRoot, dir),
+      page.id,
+      startUrl,
+      this.#options.captureResourceTypes,
+    );
+    this.#networkCollector.setCapture(page.pptrPage, capture);
+    return capture.dir;
+  }
+
+  /**
+   * Stops the capture of a page once every body still being written is saved.
+   */
+  async stopCapture(page: McpPage): Promise<CaptureSummary | undefined> {
+    const capture = this.#networkCollector.getCapture(page.pptrPage);
+    this.#networkCollector.setCapture(page.pptrPage, undefined);
+    return await capture?.stop();
+  }
+
   async closePage(pageId: number): Promise<void> {
     if (this.#pages.length === 1) {
       throw new Error(CLOSE_PAGE_ERROR);
     }
     const page = this.getPageById(pageId);
     if (page) {
+      await this.stopCapture(page);
       page.dispose();
       this.#mcpPages.delete(page.pptrPage);
     }
@@ -872,10 +918,9 @@ export class McpContext implements Context {
         );
         break;
       case 'load':
-        await page.waitForFunction(
-          () => document.readyState === 'complete',
-          {timeout},
-        );
+        await page.waitForFunction(() => document.readyState === 'complete', {
+          timeout,
+        });
         break;
     }
   }

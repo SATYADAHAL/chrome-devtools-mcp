@@ -108,6 +108,29 @@ export const commands: Commands = {
       },
     },
   },
+  copy_as_curl: {
+    description:
+      'Converts a network request to a cURL command, Python requests code, or Python http.client code. By default, returns Python requests code. Uses the currently selected request in the DevTools Network panel unless reqid is specified.',
+    category: 'Network',
+    args: {
+      reqid: {
+        name: 'reqid',
+        type: 'number',
+        description:
+          'The reqid of the network request. If omitted returns the currently selected request in the DevTools Network panel.',
+        required: false,
+      },
+      format: {
+        name: 'format',
+        type: 'string',
+        description:
+          'Output format: python (requests), python-http (http.client stdlib), or curl. Defaults to python.',
+        required: false,
+        default: 'python',
+        enum: ['python', 'python-http', 'curl'],
+      },
+    },
+  },
   drag: {
     description: 'Drag an element onto another element',
     category: 'Input automation',
@@ -519,6 +542,27 @@ export const commands: Commands = {
       },
     },
   },
+  get_page_visible_texts: {
+    description:
+      'Get visible text content from the currently selected page. Returns the text rendered on the page, excluding hidden elements, scripts, and styles.',
+    category: 'Debugging',
+    args: {
+      selector: {
+        name: 'selector',
+        type: 'string',
+        description:
+          'A CSS selector to scope text extraction to a specific element. If omitted, extracts text from the entire page.',
+        required: false,
+      },
+      filePath: {
+        name: 'filePath',
+        type: 'string',
+        description:
+          'The absolute or relative path to a .txt file to save the extracted text to.',
+        required: false,
+      },
+    },
+  },
   handle_dialog: {
     description:
       'If a browser dialog was opened, use this command to handle it',
@@ -683,6 +727,12 @@ export const commands: Commands = {
           'Filter requests to only return requests of the specified resource types. When omitted or empty, returns all requests.',
         required: false,
       },
+      excludeUrlPatterns: {
+        name: 'excludeUrlPatterns',
+        type: 'array',
+        description: 'URL patterns to exclude from the results.',
+        required: false,
+      },
       includePreservedRequests: {
         name: 'includePreservedRequests',
         type: 'boolean',
@@ -744,6 +794,14 @@ export const commands: Commands = {
           'A JavaScript script to be executed on each new document before any other scripts for the next navigation.',
         required: false,
       },
+      waitUntil: {
+        name: 'waitUntil',
+        type: 'string',
+        description:
+          'When to consider navigation succeeded. Defaults to `load`. Use `networkidle0` to wait until there are no more than 0 network connections for at least 500ms.',
+        required: false,
+        enum: ['load', 'domcontentloaded', 'networkidle0', 'networkidle2'],
+      },
       timeout: {
         name: 'timeout',
         type: 'integer',
@@ -777,6 +835,14 @@ export const commands: Commands = {
         description:
           'If specified, the page is created in an isolated browser context with the given name. Pages in the same browser context share cookies and storage. Pages in different browser contexts are fully isolated.',
         required: false,
+      },
+      waitUntil: {
+        name: 'waitUntil',
+        type: 'string',
+        description:
+          'When to consider navigation succeeded. Defaults to `load`. Use `networkidle0` to wait until there are no more than 0 network connections for at least 500ms.',
+        required: false,
+        enum: ['load', 'domcontentloaded', 'networkidle0', 'networkidle2'],
       },
       timeout: {
         name: 'timeout',
@@ -925,6 +991,86 @@ export const commands: Commands = {
     category: 'Debugging',
     args: {},
   },
+  search_network: {
+    description:
+      'Searches network request and response bodies for a pattern. Checks URLs, request bodies, and response bodies of all captured requests.',
+    category: 'Network',
+    args: {
+      pattern: {
+        name: 'pattern',
+        type: 'string',
+        description:
+          'Text or regex pattern to search for in request/response bodies and URLs.',
+        required: true,
+      },
+      resourceTypes: {
+        name: 'resourceTypes',
+        type: 'array',
+        description:
+          'Filter to only search requests of the specified resource types. When omitted or empty, searches all types.',
+        required: false,
+      },
+      includePreservedRequests: {
+        name: 'includePreservedRequests',
+        type: 'boolean',
+        description:
+          'Set to true to search preserved requests from the last 3 navigations.',
+        required: false,
+        default: false,
+      },
+      pageSize: {
+        name: 'pageSize',
+        type: 'integer',
+        description:
+          'Maximum number of matches to return. When omitted, returns all matches.',
+        required: false,
+      },
+      pageIdx: {
+        name: 'pageIdx',
+        type: 'integer',
+        description:
+          'Page number to return (0-based). When omitted, returns the first page.',
+        required: false,
+      },
+    },
+  },
+  search_network_multi: {
+    description:
+      'Search network requests matching any of the provided patterns. Returns up to 5 matching requests by default. Checks URLs, request bodies, and response bodies.',
+    category: 'Network',
+    args: {
+      patterns: {
+        name: 'patterns',
+        type: 'array',
+        description:
+          'List of text or regex patterns to search for in request/response bodies and URLs. Returns requests that match any pattern.',
+        required: true,
+      },
+      maxResults: {
+        name: 'maxResults',
+        type: 'integer',
+        description:
+          'Maximum number of matching requests to return. Defaults to 5.',
+        required: false,
+        default: 5,
+      },
+      resourceTypes: {
+        name: 'resourceTypes',
+        type: 'array',
+        description:
+          'Filter to only search requests of the specified resource types. When omitted or empty, searches all types.',
+        required: false,
+      },
+      includePreservedRequests: {
+        name: 'includePreservedRequests',
+        type: 'boolean',
+        description:
+          'Set to true to search preserved requests from the last 3 navigations.',
+        required: false,
+        default: false,
+      },
+    },
+  },
   select_page: {
     description: 'Select a page as a context for future tool calls.',
     category: 'Navigation automation',
@@ -943,6 +1089,12 @@ export const commands: Commands = {
         required: false,
       },
     },
+  },
+  stop_capture: {
+    description:
+      'Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and how many requests were saved. (requires flag: --captureRoot=true)',
+    category: 'Network',
+    args: {},
   },
   take_heapsnapshot: {
     description:

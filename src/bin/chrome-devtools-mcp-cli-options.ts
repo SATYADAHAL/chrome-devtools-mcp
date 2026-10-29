@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import {SCRAPE_TRACKER_PATTERNS} from '../scrapeTrackers.js';
 import type {YargsOptions} from '../third_party/index.js';
 import {yargs, hideBin} from '../third_party/index.js';
 
@@ -345,7 +346,17 @@ export const cliOptions = {
   scrape: {
     type: 'boolean',
     describe:
-      'Scrape mode. Enables headless mode, blocks tracking/analytics domains, and restricts tools to a scraping-optimized subset (navigation, input, network, debugging). Overridable by explicit flags.',
+      'Scrape mode. Blocks tracking/analytics domains, disables usage statistics, and restricts tools to a scraping-optimized subset (navigation, input, network, debugging). Does not change headless mode.',
+  },
+  captureRoot: {
+    type: 'string',
+    describe:
+      'Enables per-tab network capture. new_page with a captureDir (a folder inside this root) saves every finished data request of the tab as it completes: <reqid>.json (metadata), <reqid>.network-response (raw body), <reqid>.network-request (POST body), requests.jsonl and capture.json. Tabs are only captured when asked.',
+  },
+  captureResourceTypes: {
+    type: 'string',
+    describe:
+      'Comma-separated resource types saved by network capture. Defaults to "document,xhr,fetch,script" (scripts only when they are JSONP: not a plain .js file, or with a callback parameter).',
   },
   toolAllowlist: {
     type: 'string',
@@ -396,30 +407,10 @@ export function parseArguments(
       if (args.scrape) {
         args.usageStatistics = false;
         args.toolAllowlist =
-          'navigate_page,new_page,wait_for,take_snapshot,evaluate_script,click,fill,press_key,list_network_requests,get_network_request,copy_as_curl,search_network,get_page_visible_texts';
-        const trackers = [
-          'https://*google-analytics*',
-          'https://*analytics.google*',
-          'https://*googletagmanager*',
-          'https://*doubleclick*',
-          'https://*clarity.ms*',
-          'https://*facebook*',
-          'https://*recaptcha*',
-          'https://*firebase*',
-          'https://*gstatic*',
-          'https://*hotjar*',
-          'https://*mouseflow*',
-          'https://*fullstory*',
-          'https://*crazyegg*',
-          'https://*amplitude*',
-          'https://*mixpanel*',
-          'https://*segment*',
-          'https://*sentry*',
-          'https://*google.np*',
-        ];
+          'navigate_page,new_page,wait_for,take_snapshot,evaluate_script,click,fill,press_key,list_network_requests,get_network_request,copy_as_curl,search_network,search_network_multi,get_page_visible_texts,stop_capture';
         args.blockedUrlPattern = [
           ...(args.blockedUrlPattern || []),
-          ...trackers,
+          ...SCRAPE_TRACKER_PATTERNS,
         ];
       }
     })
@@ -486,7 +477,7 @@ export function parseArguments(
       ],
       [
         '$0 --scrape',
-        'Scrape mode: headless, analytics/trackers blocked, scraping-optimized toolset',
+        'Scrape mode: analytics/trackers blocked, scraping-optimized toolset',
       ],
     ]);
 

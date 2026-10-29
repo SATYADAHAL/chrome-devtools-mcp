@@ -6,6 +6,7 @@
 
 import {FakeIssuesManager} from './devtools/DevtoolsUtils.js';
 import {logger} from './logger.js';
+import type {NetworkCapture} from './NetworkCapture.js';
 import type {
   Target,
   CDPSession,
@@ -360,6 +361,7 @@ class PageEventSubscriber {
 
 export class NetworkCollector extends PageCollector<HTTPRequest> {
   #finishedRequests = new WeakMap<Page, Set<number>>();
+  #captures = new WeakMap<Page, NetworkCapture>();
 
   constructor(
     browser: Browser,
@@ -376,6 +378,18 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
     super(browser, listeners);
   }
 
+  setCapture(page: Page, capture: NetworkCapture | undefined): void {
+    if (capture) {
+      this.#captures.set(page, capture);
+    } else {
+      this.#captures.delete(page);
+    }
+  }
+
+  getCapture(page: Page): NetworkCapture | undefined {
+    return this.#captures.get(page);
+  }
+
   override addPage(page: Page): void {
     const alreadyHasFinished = this.#finishedRequests.has(page);
     if (!alreadyHasFinished) {
@@ -387,6 +401,7 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
         const stableId = (req as WithSymbolId<HTTPRequest>)[stableIdSymbol];
         if (stableId !== undefined) {
           this.#finishedRequests.get(page)?.add(stableId);
+          this.#captures.get(page)?.record(req, stableId);
         }
       });
     }
@@ -399,6 +414,8 @@ export class NetworkCollector extends PageCollector<HTTPRequest> {
   protected override cleanupPageDestroyed(page: Page): void {
     super.cleanupPageDestroyed(page);
     this.#finishedRequests.delete(page);
+    void this.#captures.get(page)?.stop();
+    this.#captures.delete(page);
   }
 
   override splitAfterNavigation(page: Page) {

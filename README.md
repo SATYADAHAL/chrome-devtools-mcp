@@ -502,12 +502,17 @@ If you run into any issues, checkout our [troubleshooting guide](./docs/troubles
   - [`performance_analyze_insight`](docs/tool-reference.md#performance_analyze_insight)
   - [`performance_start_trace`](docs/tool-reference.md#performance_start_trace)
   - [`performance_stop_trace`](docs/tool-reference.md#performance_stop_trace)
-- **Network** (2 tools)
+- **Network** (6 tools)
+  - [`copy_as_curl`](docs/tool-reference.md#copy_as_curl)
   - [`get_network_request`](docs/tool-reference.md#get_network_request)
   - [`list_network_requests`](docs/tool-reference.md#list_network_requests)
-- **Debugging** (8 tools)
+  - [`search_network`](docs/tool-reference.md#search_network)
+  - [`search_network_multi`](docs/tool-reference.md#search_network_multi)
+  - [`stop_capture`](docs/tool-reference.md#stop_capture)
+- **Debugging** (9 tools)
   - [`evaluate_script`](docs/tool-reference.md#evaluate_script)
   - [`get_console_message`](docs/tool-reference.md#get_console_message)
+  - [`get_page_visible_texts`](docs/tool-reference.md#get_page_visible_texts)
   - [`lighthouse_audit`](docs/tool-reference.md#lighthouse_audit)
   - [`list_console_messages`](docs/tool-reference.md#list_console_messages)
   - [`take_screenshot`](docs/tool-reference.md#take_screenshot)
@@ -735,6 +740,26 @@ The Chrome DevTools MCP server supports the following configuration option:
 - **`--slim`**
   Exposes a "slim" set of 3 tools covering navigation, script execution and screenshots only. Useful for basic browser tasks.
   - **Type:** boolean
+  - **Default:** `false`
+
+- **`--scrape`**
+  Scrape mode. Blocks tracking/analytics domains, disables usage statistics, and restricts tools to a scraping-optimized subset (navigation, input, network, debugging). Does not change headless mode.
+  - **Type:** boolean
+  - **Default:** `false`
+
+- **`--captureRoot`/ `--capture-root`**
+  Enables per-tab network capture. new_page with a captureDir (a folder inside this root) saves every finished data request of the tab as it completes: <reqid>.json (metadata), <reqid>.network-response (raw body), <reqid>.network-request (POST body), requests.jsonl and capture.json. Tabs are only captured when asked.
+  - **Type:** string
+  - **Default:** `false`
+
+- **`--captureResourceTypes`/ `--capture-resource-types`**
+  Comma-separated resource types saved by network capture. Defaults to "document,xhr,fetch,script" (scripts only when they are JSONP: not a plain .js file, or with a callback parameter).
+  - **Type:** string
+  - **Default:** `false`
+
+- **`--toolAllowlist`/ `--tool-allowlist`**
+  Comma-separated list of tool names to expose. Only matching tools are registered. Example: --tool-allowlist "navigate_page,new_page,click,fill"
+  - **Type:** string
   - **Default:** `false`
 
 - **`--redactNetworkHeaders`/ `--redact-network-headers`**

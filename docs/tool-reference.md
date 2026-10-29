@@ -27,12 +27,17 @@
   - [`performance_analyze_insight`](#performance_analyze_insight)
   - [`performance_start_trace`](#performance_start_trace)
   - [`performance_stop_trace`](#performance_stop_trace)
-- **[Network](#network)** (2 tools)
+- **[Network](#network)** (6 tools)
+  - [`copy_as_curl`](#copy_as_curl)
   - [`get_network_request`](#get_network_request)
   - [`list_network_requests`](#list_network_requests)
-- **[Debugging](#debugging)** (8 tools)
+  - [`search_network`](#search_network)
+  - [`search_network_multi`](#search_network_multi)
+  - [`stop_capture`](#stop_capture)
+- **[Debugging](#debugging)** (9 tools)
   - [`evaluate_script`](#evaluate_script)
   - [`get_console_message`](#get_console_message)
+  - [`get_page_visible_texts`](#get_page_visible_texts)
   - [`lighthouse_audit`](#lighthouse_audit)
   - [`list_console_messages`](#list_console_messages)
   - [`take_screenshot`](#take_screenshot)
@@ -212,6 +217,7 @@
 - **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
 - **type** (enum: "url", "back", "forward", "reload") _(optional)_: Navigate the page by URL, back or forward in history, or reload.
 - **url** (string) _(optional)_: Target URL (only type=url)
+- **waitUntil** (enum: "load", "domcontentloaded", "networkidle0", "networkidle2") _(optional)_: When to consider navigation succeeded. Defaults to `load`. Use `networkidle0` to wait until there are no more than 0 network connections for at least 500ms.
 
 ---
 
@@ -225,6 +231,7 @@
 - **background** (boolean) _(optional)_: Whether to open the page in the background without bringing it to the front. Default is false (foreground).
 - **isolatedContext** (string) _(optional)_: If specified, the page is created in an isolated browser context with the given name. Pages in the same browser context share cookies and storage. Pages in different browser contexts are fully isolated.
 - **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
+- **waitUntil** (enum: "load", "domcontentloaded", "networkidle0", "networkidle2") _(optional)_: When to consider navigation succeeded. Defaults to `load`. Use `networkidle0` to wait until there are no more than 0 network connections for at least 500ms.
 
 ---
 
@@ -241,12 +248,13 @@
 
 ### `wait_for`
 
-**Description:** Wait for the specified text to appear on the selected page.
+**Description:** Wait for a condition on the selected page. Supports waiting for text to appear, or for lifecycle events like network idle.
 
 **Parameters:**
 
-- **text** (array) **(required)**: Non-empty list of texts. Resolves when any value appears on the page.
+- **text** (array) _(optional)_: List of texts. Resolves when any value appears on the page.
 - **timeout** (integer) _(optional)_: Maximum wait time in milliseconds. If set to 0, the default timeout will be used.
+- **waitUntil** (enum: "domcontentloaded", "load", "networkidle") _(optional)_: Wait for the specified lifecycle event. Defaults to "networkidle" when text is not provided.
 
 ---
 
@@ -316,6 +324,17 @@
 
 ## Network
 
+### `copy_as_curl`
+
+**Description:** Converts a network request to a cURL command, Python requests code, or Python http.client code. By default, returns Python requests code. Uses the currently selected request in the DevTools Network panel unless reqid is specified.
+
+**Parameters:**
+
+- **format** (enum: "python", "python-http", "curl") _(optional)_: Output format: python (requests), python-http (http.client stdlib), or curl. Defaults to python.
+- **reqid** (number) _(optional)_: The reqid of the network request. If omitted returns the currently selected request in the DevTools Network panel.
+
+---
+
 ### `get_network_request`
 
 **Description:** Gets a network request by an optional reqid, if omitted returns the currently selected request in the DevTools Network panel.
@@ -334,10 +353,46 @@
 
 **Parameters:**
 
+- **excludeUrlPatterns** (array) _(optional)_: URL patterns to exclude from the results.
 - **includePreservedRequests** (boolean) _(optional)_: Set to true to return the preserved requests over the last 3 navigations.
 - **pageIdx** (integer) _(optional)_: Page number to return (0-based). When omitted, returns the first page.
 - **pageSize** (integer) _(optional)_: Maximum number of requests to return. When omitted, returns all requests.
 - **resourceTypes** (array) _(optional)_: Filter requests to only return requests of the specified resource types. When omitted or empty, returns all requests.
+
+---
+
+### `search_network`
+
+**Description:** Searches network request and response bodies for a pattern. Checks URLs, request bodies, and response bodies of all captured requests.
+
+**Parameters:**
+
+- **pattern** (string) **(required)**: Text or regex pattern to search for in request/response bodies and URLs.
+- **includePreservedRequests** (boolean) _(optional)_: Set to true to search preserved requests from the last 3 navigations.
+- **pageIdx** (integer) _(optional)_: Page number to return (0-based). When omitted, returns the first page.
+- **pageSize** (integer) _(optional)_: Maximum number of matches to return. When omitted, returns all matches.
+- **resourceTypes** (array) _(optional)_: Filter to only search requests of the specified resource types. When omitted or empty, searches all types.
+
+---
+
+### `search_network_multi`
+
+**Description:** Search network requests matching any of the provided patterns. Returns up to 5 matching requests by default. Checks URLs, request bodies, and response bodies.
+
+**Parameters:**
+
+- **patterns** (array) **(required)**: List of text or regex patterns to search for in request/response bodies and URLs. Returns requests that match any pattern.
+- **includePreservedRequests** (boolean) _(optional)_: Set to true to search preserved requests from the last 3 navigations.
+- **maxResults** (integer) _(optional)_: Maximum number of matching requests to return. Defaults to 5.
+- **resourceTypes** (array) _(optional)_: Filter to only search requests of the specified resource types. When omitted or empty, searches all types.
+
+---
+
+### `stop_capture`
+
+**Description:** Stops saving the network traffic of the page, after every response still being written is saved. Returns the capture folder and how many requests were saved. (requires flag: --captureRoot=true)
+
+**Parameters:** None
 
 ---
 
@@ -373,6 +428,17 @@ so returned values have to be JSON-serializable.
 **Parameters:**
 
 - **msgid** (number) **(required)**: The msgid of a console message on the page from the listed console messages
+
+---
+
+### `get_page_visible_texts`
+
+**Description:** Get visible text content from the currently selected page. Returns the text rendered on the page, excluding hidden elements, scripts, and styles.
+
+**Parameters:**
+
+- **filePath** (string) _(optional)_: The absolute or relative path to a .txt file to save the extracted text to.
+- **selector** (string) _(optional)_: A CSS selector to scope text extraction to a specific element. If omitted, extracts text from the entire page.
 
 ---
 

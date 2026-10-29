@@ -121,6 +121,7 @@ export async function withMcpContext(
     args?: string[];
     blockedUrlPattern?: string[];
     allowedUrlPattern?: string[];
+    captureRoot?: string;
   } = {},
   args: Partial<ParsedArguments> = {},
 ) {
@@ -138,6 +139,7 @@ export async function withMcpContext(
         performanceCrux: options.performanceCrux ?? true,
         allowList: options.allowedUrlPattern,
         blocklist: options.blockedUrlPattern,
+        captureRoot: options.captureRoot,
       },
       Locator,
     );

@@ -13,6 +13,7 @@ import type {
   Viewport,
   WebMCPTool,
 } from './third_party/index.js';
+import type {PuppeteerLifeCycleEvent} from './third_party/index.js';
 import {takeSnapshot} from './tools/snapshot.js';
 import type {ToolGroups} from './tools/thirdPartyDeveloper.js';
 import type {
@@ -30,7 +31,6 @@ import {
   WaitForHelper,
   type WaitForEventsResult,
 } from './WaitForHelper.js';
-import type {PuppeteerLifeCycleEvent} from './third_party/index.js';
 
 /**
  * Per-page state wrapper. Consolidates dialog, snapshot, emulation,

@@ -7,6 +7,7 @@
 import type {ParsedArguments} from '../bin/chrome-devtools-mcp-cli-options.js';
 import type {AggregatedInfoWithId} from '../HeapSnapshotManager.js';
 import type {McpPage} from '../McpPage.js';
+import type {CaptureSummary} from '../NetworkCapture.js';
 import {zod} from '../third_party/index.js';
 import type {
   Dialog,
@@ -152,6 +153,7 @@ export interface Response {
   // Allows re-using DevTools data queried by some tools.
   attachDevToolsData(data: DevToolsData): void;
   setTabId(tabId: string): void;
+  setCapture(capture: {pageId: number; dir: string} | CaptureSummary): void;
   attachTraceSummary(trace: TraceResult): void;
   attachTraceInsight(
     trace: TraceResult,
@@ -193,6 +195,12 @@ export type Context = Readonly<{
     isolatedContextName?: string,
   ): Promise<ContextPage>;
   closePage(pageId: number): Promise<void>;
+  startCapture(
+    page: ContextPage,
+    dir: string,
+    startUrl: string,
+  ): Promise<string>;
+  stopCapture(page: ContextPage): Promise<CaptureSummary | undefined>;
   selectPage(page: ContextPage): void;
   restoreEmulation(page: ContextPage): Promise<void>;
   emulate(
@@ -233,7 +241,10 @@ export type Context = Readonly<{
     cdpRequestId: string,
   ): number | undefined;
   getNetworkRequestById(page: ContextPage, reqid: number): HTTPRequest;
-  getNetworkRequests(page: ContextPage, includePreservedRequests?: boolean): HTTPRequest[];
+  getNetworkRequests(
+    page: ContextPage,
+    includePreservedRequests?: boolean,
+  ): HTTPRequest[];
   getNetworkRequestStableId(request: HTTPRequest): number;
   isNetworkRequestFinished(page: ContextPage, reqid: number): boolean;
   getScreenRecorder(): {recorder: ScreenRecorder; filePath: string} | null;
@@ -289,6 +300,7 @@ export type Context = Readonly<{
  * Only add methods used by tools/*.
  */
 export type ContextPage = Readonly<{
+  readonly id: number;
   readonly pptrPage: Page;
   readonly cpuThrottlingRate: number;
   readonly networkConditions: string | null;

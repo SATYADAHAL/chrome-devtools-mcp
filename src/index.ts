@@ -146,6 +146,11 @@ export async function createMcpServer(
         performanceCrux: serverArgs.performanceCrux,
         allowList: allowlist,
         blocklist: blocklist,
+        captureRoot: serverArgs.captureRoot,
+        captureResourceTypes: serverArgs.captureResourceTypes
+          ?.split(',')
+          .map(t => t.trim())
+          .filter(Boolean),
       });
       await updateRoots();
     }

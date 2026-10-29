@@ -38,7 +38,7 @@ export const getPageVisibleTexts = definePageTool({
 
     const visibleText = await page.evaluate((sel: string | undefined) => {
       const root = sel ? document.querySelector(sel) : document.body;
-      if (!root || !(root instanceof HTMLElement)) return '';
+      if (!root || !(root instanceof HTMLElement)) {return '';}
       return root.innerText;
     }, selector);
 
