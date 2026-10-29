@@ -119,7 +119,7 @@ Which hosts are data is decided by a JSON file, `--capture-filter <file.json>`. 
 
 ```json
 {
-  "version": 2,
+  "version": 5,
   "block": [
     "google-analytics.com",
     "facebook.com/tr",
@@ -143,7 +143,14 @@ Which hosts are data is decided by a JSON file, `--capture-filter <file.json>`. 
     "/search",
     "..."
   ],
-  "ignore_paths": ["/collect", "/pixel", "/beacon", "/track", "/log", "..."]
+  "ignore_paths": [
+    "/collect",
+    "/pixel",
+    "/beacon",
+    "/telemetry",
+    "/metrics",
+    "..."
+  ]
 }
 ```
 
@@ -151,7 +158,7 @@ Which hosts are data is decided by a JSON file, `--capture-filter <file.json>`. 
 - `block_subdomains`: first-party proxies by their first host label on any site: `gtm` blocks `gtm.shop.com` and `gtm2.shop.com.au`, not `gtmetrix.com`.
 - `ignore`: widgets the page needs (recaptcha, consent banners, payments / BNPL, monitoring, feature flags, A/B testing, anti-fraud, Cloudflare challenges). They load, the page keeps working, they are labelled `ignored_host`, and only bodies up to 16 KB are kept, as `evidenceFile`.
 - `allow`: review, search and product-data vendors. Always data for a data resource type; beats `block`, `ignore` and `ignore_paths`. A `block` entry that overlaps an `allow` domain is not sent to Chrome.
-- `ignore_paths`: path pieces of beacons, matched as whole path segments (`/log` matches `/log` and `/api/log/x`, not `/login` or `/blog`).
+- `ignore_paths`: path pieces of beacons, matched as whole path segments (`/collect` matches `/collect` and `/g/collect`, not `/collections`). `/track` and `/log` are deliberately not in the default: parcel tracking and log APIs use them.
 
 Entry syntax: `segment.com` matches the domain and its subdomains (`cdn.segment.com`), never a longer name (`mysegmentshop.com.au`); `facebook.com/tr` also needs that path prefix; `google.*` is the domain under any public suffix (`google.com.au`); `/cdn-cgi/` is a path prefix on any host. Firebase Realtime Database and Firestore are deliberately not listed: they can be the page's data.
 

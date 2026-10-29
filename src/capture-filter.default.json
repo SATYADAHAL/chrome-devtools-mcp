@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "block": [
     "google-analytics.com",
     "analytics.google.com",
@@ -133,9 +133,6 @@
     "/telemetry",
     "/metrics",
     "/analytics",
-    "/track",
-    "/tracking",
-    "/log",
     "/click-stream"
   ]
 }

@@ -182,6 +182,19 @@ describe('CaptureFilter', () => {
       });
     }
 
+    it('leaves paths that real APIs use out of ignore_paths', () => {
+      // Parcel tracking and log viewers are data; /track and /log are not
+      // beacon paths by default.
+      for (const url of [
+        'https://shop.com/track/order/123',
+        'https://shop.com/tracking?id=1',
+        'https://shop.com/api/log/entries',
+      ]) {
+        assert.ok(!defaults.ignoredPath(url), url);
+      }
+      assert.ok(defaults.ignoredPath('https://shop.com/g/collect?v=2'));
+    });
+
     it('blocks ads but not ignored widgets in Chrome', () => {
       const patterns = defaults
         .chromeBlockPatterns()
